@@ -1,5 +1,24 @@
 """
+exceptions.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Custom exceptions for the PyOpenChannel library.
+
+This module contains the following exceptions:
+- PyOpenChannelError
+- InvalidGeometryError
+- ConvergenceError
+- InvalidFlowConditionError
+- NegativeDepthError
+- NegativeDischargeError
+- SupercriticalFlowError
+- SubcriticalFlowError
+- InvalidRoughnessError
+- InvalidSlopeError
+- ChannelCapacityExceededError
+
+The exceptions are used to handle errors and invalid input parameters in the open channel flow calculations.
 """
 
 
