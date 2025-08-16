@@ -1,0 +1,17 @@
+[project]
+name = "pyopenchannel"
+version = "0.1.0"
+description = "A simple and easy to use open channel flow library in python."
+readme = "README.md"
+authors = [
+    { name = "Alexius Academia", email = "alexius.academia@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+pyopenchannel = "pyopenchannel:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
