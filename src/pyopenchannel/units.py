@@ -129,13 +129,17 @@ class Units:
         Manning's equation in SI: Q = (1/n) * A * R^(2/3) * S^(1/2)
         Manning's equation in US: Q = (1.49/n) * A * R^(2/3) * S^(1/2)
         
+        The factor 1.49 comes from unit conversion:
+        1 m^(1/3)/s = 3.28084^(1/3) ft^(1/3)/s ≈ 1.4859 ft^(1/3)/s
+        
         Returns:
             Unit conversion factor for Manning's equation
         """
         if self.system == UnitSystem.SI:
             return 1.0
         elif self.system == UnitSystem.US_CUSTOMARY:
-            return 1.49
+            # More precise Manning factor: (m_to_ft)^(1/3)
+            return CONVERSION_FACTORS["m_to_ft"]**(1/3)
     
     def format_value(self, value: float, quantity_type: str, precision: int = 3) -> str:
         """
