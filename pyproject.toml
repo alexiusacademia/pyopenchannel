@@ -1,6 +1,6 @@
 [project]
 name = "pyopenchannel"
-version = "0.1.0"
+version = "0.3.0"
 description = "A comprehensive Python library for open channel flow analysis and design"
 readme = "README.md"
 license = { text = "MIT" }
