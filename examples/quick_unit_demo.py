@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+File: quick_unit_demo.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Quick demonstration of unit system flexibility in PyOpenChannel.
 """
 

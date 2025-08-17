@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+File: interactive_solver.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Interactive solver demonstration showing how to switch unknowns easily.
 
 This script shows the same channel with the same basic parameters,

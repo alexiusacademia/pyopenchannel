@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+File: unit_aware_hydraulics.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Test unit-aware hydraulics calculations.
 
 This example verifies that hydraulic calculations work correctly

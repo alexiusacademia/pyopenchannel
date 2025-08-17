@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+File: unit_systems.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Unit system demonstration for PyOpenChannel.
 
 This example shows how to:

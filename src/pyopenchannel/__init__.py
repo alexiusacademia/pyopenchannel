@@ -78,6 +78,28 @@ from .units import (
     cms_to_gpm,
 )
 
+from .gvf import (
+    GVFSolver,
+    GVFEquation,
+    GVFResult,
+    ProfilePoint,
+    BoundaryType,
+    FlowRegime,
+    ProfileType,
+    ProfileClassifier,
+    WaterSurfaceProfile,
+    ProfileAnalyzer,
+    SlopeType,
+    ProfileCharacteristics,
+    DamAnalysis,
+    BridgeAnalysis,
+    ChuteAnalysis,
+    ChannelTransition,
+    AnalysisResult,
+    AnalysisType,
+    DesignCriteria,
+)
+
 __all__ = [
     # Geometry classes
     "RectangularChannel",
@@ -131,6 +153,29 @@ __all__ = [
     "cms_to_cfs",
     "gpm_to_cms",
     "cms_to_gpm",
+    
+    # GVF (Gradually Varied Flow)
+    "GVFSolver",
+    "GVFEquation",
+    "GVFResult",
+    "ProfilePoint",
+    "BoundaryType",
+    "FlowRegime",
+    "ProfileType",
+    "ProfileClassifier",
+    "WaterSurfaceProfile",
+    "ProfileAnalyzer",
+    "SlopeType",
+    "ProfileCharacteristics",
+    
+    # GVF Applications
+    "DamAnalysis",
+    "BridgeAnalysis",
+    "ChuteAnalysis",
+    "ChannelTransition",
+    "AnalysisResult",
+    "AnalysisType",
+    "DesignCriteria",
 ]
 
 

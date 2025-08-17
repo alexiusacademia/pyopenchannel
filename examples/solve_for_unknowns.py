@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+File: solve_for_unknowns.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Demonstration of solving for different unknowns in PyOpenChannel.
 
 This example shows how you can solve for different variables depending on
