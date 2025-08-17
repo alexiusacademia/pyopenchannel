@@ -1,13 +1,75 @@
 [project]
 name = "pyopenchannel"
 version = "0.1.0"
-description = "A simple and easy to use open channel flow library in python."
+description = "A comprehensive Python library for open channel flow analysis and design"
 readme = "README.md"
+license = { text = "MIT" }
 authors = [
-    { name = "Alexius Academia", email = "alexius.academia@gmail.com" }
+    { name = "Alexius Academia", email = "alexius.sayco.academia@gmail.com" }
+]
+maintainers = [
+    { name = "Alexius Academia", email = "alexius.sayco.academia@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = []
+
+keywords = [
+    "hydraulics",
+    "open-channel-flow", 
+    "civil-engineering",
+    "water-resources",
+    "channel-design",
+    "manning-equation",
+    "hydraulic-engineering"
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education", 
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Education",
+    "Typing :: Typed"
+]
+
+[project.urls]
+Homepage = "https://github.com/alexiusacademia/pyopenchannel"
+Documentation = "https://github.com/alexiusacademia/pyopenchannel#readme"
+Repository = "https://github.com/alexiusacademia/pyopenchannel"
+Issues = "https://github.com/alexiusacademia/pyopenchannel/issues"
+Changelog = "https://github.com/alexiusacademia/pyopenchannel/releases"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-timeout>=2.1.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0"
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-timeout>=2.1.0"
+]
+docs = [
+    "sphinx>=6.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+    "myst-parser>=1.0.0"
+]
+examples = [
+    "matplotlib>=3.6.0",
+    "numpy>=1.24.0"
+]
 
 [project.scripts]
 pyopenchannel = "pyopenchannel:main"
@@ -15,3 +77,104 @@ pyopenchannel = "pyopenchannel:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyopenchannel"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/examples",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml"
+]
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["pyopenchannel"]
+known_third_party = ["pytest", "numpy", "matplotlib"]
+
+# mypy configuration
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "--strict-markers",
+    "--strict-config", 
+    "--verbose",
+    "--tb=short"
+]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests", 
+    "slow: Slow running tests"
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/pyopenchannel"]
+omit = [
+    "*/tests/*",
+    "*/examples/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod"
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
