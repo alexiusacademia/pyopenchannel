@@ -46,7 +46,7 @@ MANNING_COEFFICIENTS = {
 
 # Convergence criteria for iterative calculations
 DEFAULT_TOLERANCE = 1e-6
-MAX_ITERATIONS = 100
+MAX_ITERATIONS = 1000
 
 # Common channel side slopes (horizontal:vertical)
 SIDE_SLOPES = {
