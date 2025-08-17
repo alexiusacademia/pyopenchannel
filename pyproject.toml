@@ -1,6 +1,6 @@
 [project]
 name = "pyopenchannel"
-version = "0.3.0"
+version = "0.3.1"
 description = "A comprehensive Python library for open channel flow analysis and design"
 readme = "README.md"
 license = { text = "MIT" }
@@ -10,7 +10,7 @@ authors = [
 maintainers = [
     { name = "Alexius Academia", email = "alexius.sayco.academia@gmail.com" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.9"
 dependencies = []
 
 keywords = [
@@ -30,6 +30,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
@@ -94,7 +97,7 @@ include = [
 # Black configuration
 [tool.black]
 line-length = 88
-target-version = ['py312']
+target-version = ['py39']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -120,7 +123,7 @@ known_third_party = ["pytest", "numpy", "matplotlib"]
 
 # mypy configuration
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

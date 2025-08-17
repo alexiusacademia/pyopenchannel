@@ -13,7 +13,7 @@ This library provides tools for:
 - Gradually varied flow analysis
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __author__ = "Alexius Academia"
 __email__ = "alexius.sayco.academia@gmail.com"
 
