@@ -260,14 +260,14 @@ class ParabolicChannel(ChannelGeometry):
     
     def area(self, depth: float) -> float:
         """Calculate cross-sectional area."""
-        depth = validate_depth(depth)
+        depth = validate_non_negative(depth, "depth")
         # For parabola y = ax², area = (2/3) * width * depth
         width = self.top_width(depth)
         return (2/3) * width * depth
     
     def wetted_perimeter(self, depth: float) -> float:
         """Calculate wetted perimeter."""
-        depth = validate_depth(depth)
+        depth = validate_non_negative(depth, "depth")
         
         # Half-width at water surface
         b = math.sqrt(depth / self.shape_parameter)
@@ -292,7 +292,7 @@ class ParabolicChannel(ChannelGeometry):
     
     def top_width(self, depth: float) -> float:
         """Calculate top width."""
-        depth = validate_depth(depth)
+        depth = validate_non_negative(depth, "depth")
         
         if depth == 0:
             return 0
