@@ -53,10 +53,10 @@ def main():
     print("="*70)
     
     # Channel setup
-    channel = RectangularChannel(width=5.0)  # 5m wide rectangular channel
-    discharge = 20.0  # m³/s
-    slope = 0.0008    # 0.08% - mild slope
-    manning_n = 0.025
+    channel = RectangularChannel(width=1.0)  # 5m wide rectangular channel
+    discharge = 1.0  # m³/s
+    slope = 0.001    # 0.08% - mild slope
+    manning_n = 0.015
     
     print(f"\n🏗️  Channel Configuration:")
     print(f"   • Type: Rectangular")
@@ -83,7 +83,7 @@ def main():
     solver = GVFSolver()
     
     # Define boundary condition - dam creates backwater
-    upstream_depth = 4.0  # m - depth at dam (above normal depth)
+    upstream_depth = 1.2  # m - depth at dam (above normal depth)
     
     print(f"\n🔍 GVF Analysis Setup:")
     print(f"   • Boundary condition: Upstream depth = {upstream_depth:.1f} m")

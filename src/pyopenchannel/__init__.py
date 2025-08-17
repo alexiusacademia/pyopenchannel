@@ -13,7 +13,7 @@ This library provides tools for:
 - Gradually varied flow analysis
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 __author__ = "Alexius Academia"
 __email__ = "alexius.sayco.academia@gmail.com"
 
@@ -100,6 +100,31 @@ from .gvf import (
     DesignCriteria,
 )
 
+# RVF (Rapidly Varied Flow) Components
+from .rvf import (
+    RVFSolver,
+    RVFAnalyzer,
+    RVFResult,
+    RVFRegime,
+    JumpType,
+    TransitionType,
+    ShockProperties,
+    GateFlowSolver,
+    GateFlowAnalyzer,
+    GateFlowResult,
+    GateGeometry,
+    GateType,
+    FlowCondition,
+    CavitationRisk,
+    WeirFlowSolver,
+    WeirFlowAnalyzer,
+    WeirFlowResult,
+    WeirGeometry,
+    WeirType,
+    WeirCondition,
+    AerationLevel,
+)
+
 __all__ = [
     # Geometry classes
     "RectangularChannel",
@@ -176,6 +201,33 @@ __all__ = [
     "AnalysisResult",
     "AnalysisType",
     "DesignCriteria",
+    
+    # RVF Components
+    "RVFSolver",
+    "RVFAnalyzer",
+    "RVFResult",
+    "RVFRegime",
+    "JumpType",
+    "TransitionType",
+    "ShockProperties",
+    
+    # Gate Flow Components
+    "GateFlowSolver",
+    "GateFlowAnalyzer",
+    "GateFlowResult",
+    "GateGeometry",
+    "GateType",
+    "FlowCondition",
+    "CavitationRisk",
+    
+    # Weir Flow Components
+    "WeirFlowSolver",
+    "WeirFlowAnalyzer",
+    "WeirFlowResult",
+    "WeirGeometry",
+    "WeirType",
+    "WeirCondition",
+    "AerationLevel",
 ]
 
 

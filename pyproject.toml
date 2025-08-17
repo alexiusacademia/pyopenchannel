@@ -1,6 +1,6 @@
 [project]
 name = "pyopenchannel"
-version = "0.3.1"
+version = "0.4.0"
 description = "A comprehensive Python library for open channel flow analysis and design"
 readme = "README.md"
 license = { text = "MIT" }
@@ -11,7 +11,9 @@ maintainers = [
     { name = "Alexius Academia", email = "alexius.sayco.academia@gmail.com" }
 ]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "matplotlib>=3.9.4",
+]
 
 keywords = [
     "hydraulics",
