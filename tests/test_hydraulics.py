@@ -1,4 +1,8 @@
 """
+File: test_hydraulics.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Tests for the hydraulics module.
 """
 

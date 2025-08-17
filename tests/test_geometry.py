@@ -1,4 +1,8 @@
 """
+File: test_geometry.py
+Author: Alexius Academia
+Date: 2025-08-17
+
 Tests for the geometry module.
 """
 
