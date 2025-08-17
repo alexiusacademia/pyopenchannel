@@ -16,7 +16,7 @@ This module provides classes and functions for fundamental hydraulic calculation
 import math
 from typing import Union, Optional, Tuple
 
-from .constants import GRAVITY, DEFAULT_TOLERANCE, MAX_ITERATIONS
+from .constants import DEFAULT_TOLERANCE, MAX_ITERATIONS
 from .geometry import ChannelGeometry
 from .validators import (
     validate_positive,
@@ -36,13 +36,14 @@ class ManningEquation:
     """
     Manning's equation for uniform flow in open channels.
     
-    Q = (1/n) * A * R^(2/3) * S^(1/2)
+    SI Units: Q = (1/n) * A * R^(2/3) * S^(1/2)
+    US Units: Q = (1.49/n) * A * R^(2/3) * S^(1/2)
     
     Where:
-    - Q = discharge (m³/s)
+    - Q = discharge (m³/s or ft³/s)
     - n = Manning's roughness coefficient
-    - A = cross-sectional area (m²)
-    - R = hydraulic radius (m)
+    - A = cross-sectional area (m² or ft²)
+    - R = hydraulic radius (m or ft)
     - S = channel slope (dimensionless)
     """
     
@@ -56,21 +57,29 @@ class ManningEquation:
         """
         Calculate discharge using Manning's equation.
         
+        Automatically uses the correct unit factor based on the current unit system.
+        
         Args:
-            area: Cross-sectional area (m²)
-            hydraulic_radius: Hydraulic radius (m)
+            area: Cross-sectional area (current unit system)
+            hydraulic_radius: Hydraulic radius (current unit system)
             slope: Channel slope (dimensionless)
             manning_n: Manning's roughness coefficient
             
         Returns:
-            Discharge (m³/s)
+            Discharge (current unit system)
         """
+        # Import here to avoid circular imports
+        from .units import get_manning_factor
+        
         area = validate_positive(area, "area")
         hydraulic_radius = validate_positive(hydraulic_radius, "hydraulic_radius")
         slope = validate_slope(slope)
         manning_n = validate_manning_n(manning_n)
         
-        return (1 / manning_n) * area * (hydraulic_radius ** (2/3)) * (slope ** 0.5)
+        # Get the appropriate Manning factor for current unit system
+        manning_factor = get_manning_factor()
+        
+        return (manning_factor / manning_n) * area * (hydraulic_radius ** (2/3)) * (slope ** 0.5)
     
     @staticmethod
     def velocity(
@@ -81,19 +90,27 @@ class ManningEquation:
         """
         Calculate average velocity using Manning's equation.
         
+        Automatically uses the correct unit factor based on the current unit system.
+        
         Args:
-            hydraulic_radius: Hydraulic radius (m)
+            hydraulic_radius: Hydraulic radius (current unit system)
             slope: Channel slope (dimensionless)
             manning_n: Manning's roughness coefficient
             
         Returns:
-            Average velocity (m/s)
+            Average velocity (current unit system)
         """
+        # Import here to avoid circular imports
+        from .units import get_manning_factor
+        
         hydraulic_radius = validate_positive(hydraulic_radius, "hydraulic_radius")
         slope = validate_slope(slope)
         manning_n = validate_manning_n(manning_n)
         
-        return (1 / manning_n) * (hydraulic_radius ** (2/3)) * (slope ** 0.5)
+        # Get the appropriate Manning factor for current unit system
+        manning_factor = get_manning_factor()
+        
+        return (manning_factor / manning_n) * (hydraulic_radius ** (2/3)) * (slope ** 0.5)
     
     @staticmethod
     def required_slope(
@@ -105,22 +122,30 @@ class ManningEquation:
         """
         Calculate required slope for given discharge.
         
+        Automatically uses the correct unit factor based on the current unit system.
+        
         Args:
-            discharge: Discharge (m³/s)
-            area: Cross-sectional area (m²)
-            hydraulic_radius: Hydraulic radius (m)
+            discharge: Discharge (current unit system)
+            area: Cross-sectional area (current unit system)
+            hydraulic_radius: Hydraulic radius (current unit system)
             manning_n: Manning's roughness coefficient
             
         Returns:
             Required slope (dimensionless)
         """
+        # Import here to avoid circular imports
+        from .units import get_manning_factor
+        
         discharge = validate_discharge(discharge)
         area = validate_positive(area, "area")
         hydraulic_radius = validate_positive(hydraulic_radius, "hydraulic_radius")
         manning_n = validate_manning_n(manning_n)
         
-        # S = (Q * n / (A * R^(2/3)))^2
-        term = (discharge * manning_n) / (area * (hydraulic_radius ** (2/3)))
+        # Get the appropriate Manning factor for current unit system
+        manning_factor = get_manning_factor()
+        
+        # S = (Q * n / (manning_factor * A * R^(2/3)))^2
+        term = (discharge * manning_n) / (manning_factor * area * (hydraulic_radius ** (2/3)))
         return term ** 2
 
 
@@ -263,20 +288,24 @@ class CriticalDepth:
         
         Args:
             channel: Channel geometry object
-            discharge: Discharge (m³/s)
+            discharge: Discharge (current unit system)
             tolerance: Convergence tolerance
             max_iterations: Maximum iterations
             
         Returns:
-            Critical depth (m)
+            Critical depth (current unit system)
             
         Raises:
             ConvergenceError: If solution doesn't converge
         """
+        # Import here to avoid circular imports
+        from .units import get_gravity
+        
         discharge = validate_discharge(discharge)
+        gravity = get_gravity()
         
         # Initial guess - use hydraulic depth approximation
-        depth = (discharge**2 / GRAVITY)**(1/3)
+        depth = (discharge**2 / gravity)**(1/3)
         
         for iteration in range(max_iterations):
             try:
@@ -287,13 +316,13 @@ class CriticalDepth:
                     raise InvalidFlowConditionError("Top width is zero - no free surface")
                 
                 # Critical flow condition: Q² = g * A³ / T
-                f = discharge**2 - GRAVITY * (area**3) / top_width
+                f = discharge**2 - gravity * (area**3) / top_width
                 
                 # Derivative for Newton-Raphson
                 dA_dy = top_width  # dA/dy = T for most geometries
                 dT_dy = CriticalDepth._top_width_derivative(channel, depth)
                 
-                df_dy = -GRAVITY * (3 * area**2 * dA_dy * top_width - area**3 * dT_dy) / (top_width**2)
+                df_dy = -gravity * (3 * area**2 * dA_dy * top_width - area**3 * dT_dy) / (top_width**2)
                 
                 if abs(df_dy) < 1e-12:
                     raise ConvergenceError("Derivative too small - cannot continue iteration")
@@ -345,16 +374,20 @@ class CriticalDepth:
         Fr = V / sqrt(g * D)
         
         Args:
-            velocity: Average velocity (m/s)
-            hydraulic_depth: Hydraulic depth (m)
+            velocity: Average velocity (current unit system)
+            hydraulic_depth: Hydraulic depth (current unit system)
             
         Returns:
             Froude number (dimensionless)
         """
+        # Import here to avoid circular imports
+        from .units import get_gravity
+        
         velocity = validate_positive(velocity, "velocity")
         hydraulic_depth = validate_positive(hydraulic_depth, "hydraulic_depth")
+        gravity = get_gravity()
         
-        return velocity / math.sqrt(GRAVITY * hydraulic_depth)
+        return velocity / math.sqrt(gravity * hydraulic_depth)
 
 
 class NormalDepth:
