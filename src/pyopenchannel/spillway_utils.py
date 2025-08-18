@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+File: spillway_utils.py
+
 Rigorous Spillway Hydraulics Utilities for PyOpenChannel
 
 This module provides comprehensive spillway analysis tools based on rigorous 
@@ -7,6 +9,7 @@ hydraulic engineering principles, replacing simplified assumptions with
 physics-based calculations.
 
 Author: Alexius Academia
+Date: 2025-08-19
 """
 
 import numpy as np
