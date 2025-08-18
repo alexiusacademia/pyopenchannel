@@ -35,7 +35,7 @@ A comprehensive Python library for open channel flow analysis and design. PyOpen
 ### From Source (Development)
 
 ```bash
-git clone https://github.com/yourusername/pyopenchannel.git
+git clone https://github.com/alexiusacademia/pyopenchannel.git
 cd pyopenchannel
 pip install -e .
 ```
@@ -379,7 +379,7 @@ Contributions are welcome! Please see CONTRIBUTING.md for guidelines.
 ### Development Setup
 
 ```bash
-git clone https://github.com/yourusername/pyopenchannel.git
+git clone https://github.com/alexiusacademia/pyopenchannel.git
 cd pyopenchannel
 pip install -e ".[dev]"
 ```
