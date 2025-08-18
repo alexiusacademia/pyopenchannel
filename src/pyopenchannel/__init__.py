@@ -128,6 +128,18 @@ from .rvf import (
     AerationLevel,
 )
 
+# Spillway Utilities (Rigorous Analysis)
+from .spillway_utils import (
+    OgeeSpillway,
+    SpillwayHydraulics,
+    SpillwayGeometry,
+    NapeTrajectory,
+    SpillwayFlowProfile,
+    SpillwayType,
+    WESStandard,
+    create_wes_standard_spillway,
+)
+
 __all__ = [
     # Geometry classes
     "RectangularChannel",
@@ -234,6 +246,16 @@ __all__ = [
     "WeirType",
     "WeirCondition",
     "AerationLevel",
+    
+    # Spillway Utilities
+    "OgeeSpillway",
+    "SpillwayHydraulics",
+    "SpillwayGeometry",
+    "NapeTrajectory",
+    "SpillwayFlowProfile",
+    "SpillwayType",
+    "WESStandard",
+    "create_wes_standard_spillway",
 ]
 
 
