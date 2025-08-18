@@ -17,8 +17,9 @@ equations, making it suitable for discontinuous flow transitions.
 """
 
 import math
+import numpy as np
 from typing import Dict, List, Optional, Tuple, Any, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from ..geometry import ChannelGeometry, RectangularChannel, TrapezoidalChannel
@@ -64,7 +65,8 @@ class RVFResult:
     Result of RVF analysis.
     
     Contains all computed hydraulic parameters and analysis results
-    for rapidly varied flow conditions.
+    for rapidly varied flow conditions. Supports both analytical and
+    FVM methods with detailed profile data.
     """
     # Flow conditions
     upstream_depth: float
@@ -94,8 +96,144 @@ class RVFResult:
     success: bool
     message: str
     
+    # Method information
+    method_used: str = "analytical"  # "analytical" or "fvm"
+    computation_time: float = 0.0
+    
+    # FVM-specific detailed results (only populated if method_used == "fvm")
+    fvm_profile: Optional['FVMProfile'] = None
+    
     # Additional properties
-    properties: Dict[str, Any]
+    properties: Dict[str, Any] = field(default_factory=dict)
+    
+    @property
+    def has_detailed_profile(self) -> bool:
+        """Check if detailed FVM profile is available."""
+        return self.method_used == "fvm" and self.fvm_profile is not None
+    
+    @property
+    def profile_resolution(self) -> str:
+        """Get profile resolution description."""
+        if self.method_used == "analytical":
+            return "2-point (analytical)"
+        elif self.has_detailed_profile:
+            return f"{len(self.fvm_profile.x_coordinates)}-point (FVM)"
+        else:
+            return "2-point (analytical fallback)"
+    
+    @property
+    def num_profile_points(self) -> int:
+        """Get number of profile points."""
+        if self.has_detailed_profile:
+            return len(self.fvm_profile.x_coordinates)
+        else:
+            return 2
+
+
+@dataclass
+class FVMProfile:
+    """
+    Detailed FVM profile data for RVF analysis.
+    
+    Contains high-resolution flow field data from FVM simulation,
+    providing detailed insight into hydraulic jump structure.
+    """
+    # Spatial coordinates
+    x_coordinates: np.ndarray
+    
+    # Primary flow variables
+    depths: np.ndarray
+    velocities: np.ndarray
+    froude_numbers: np.ndarray
+    
+    # Energy and pressure
+    specific_energies: np.ndarray
+    pressure_heads: np.ndarray
+    
+    # Advanced properties (optional)
+    turbulence_intensity: Optional[np.ndarray] = None
+    air_entrainment_rate: Optional[np.ndarray] = None
+    
+    # Computational metadata
+    grid_points: int = 0
+    scheme_used: str = ""
+    convergence_iterations: int = 0
+    
+    @property
+    def domain_length(self) -> float:
+        """Get total domain length."""
+        return self.x_coordinates[-1] - self.x_coordinates[0]
+    
+    @property
+    def resolution(self) -> float:
+        """Get average grid resolution."""
+        return self.domain_length / len(self.x_coordinates)
+    
+    def get_profile_at_x(self, x: float) -> Dict[str, float]:
+        """Get flow properties at specific x location using interpolation."""
+        if x < self.x_coordinates[0] or x > self.x_coordinates[-1]:
+            raise ValueError(f"x = {x} is outside profile domain")
+        
+        # Linear interpolation
+        depth = np.interp(x, self.x_coordinates, self.depths)
+        velocity = np.interp(x, self.x_coordinates, self.velocities)
+        froude = np.interp(x, self.x_coordinates, self.froude_numbers)
+        energy = np.interp(x, self.x_coordinates, self.specific_energies)
+        pressure = np.interp(x, self.x_coordinates, self.pressure_heads)
+        
+        return {
+            'depth': depth,
+            'velocity': velocity,
+            'froude': froude,
+            'specific_energy': energy,
+            'pressure_head': pressure
+        }
+    
+    def find_jump_location(self) -> Optional[float]:
+        """Find hydraulic jump location based on maximum depth gradient."""
+        if len(self.depths) < 3:
+            return None
+        
+        # Calculate depth gradients
+        depth_gradients = np.gradient(self.depths)
+        
+        # Find location of maximum positive gradient
+        max_gradient_idx = np.argmax(depth_gradients)
+        
+        return self.x_coordinates[max_gradient_idx]
+    
+    def calculate_jump_characteristics(self) -> Dict[str, float]:
+        """Calculate detailed jump characteristics from FVM profile."""
+        jump_location = self.find_jump_location()
+        if jump_location is None:
+            return {}
+        
+        # Find upstream and downstream regions
+        jump_idx = np.argmin(np.abs(self.x_coordinates - jump_location))
+        
+        # Upstream (average over 10% of domain before jump)
+        upstream_region = max(0, jump_idx - len(self.x_coordinates) // 10)
+        upstream_depth = np.mean(self.depths[upstream_region:jump_idx])
+        upstream_velocity = np.mean(self.velocities[upstream_region:jump_idx])
+        upstream_froude = np.mean(self.froude_numbers[upstream_region:jump_idx])
+        
+        # Downstream (average over 10% of domain after jump)
+        downstream_region = min(len(self.x_coordinates), jump_idx + len(self.x_coordinates) // 10)
+        downstream_depth = np.mean(self.depths[jump_idx:downstream_region])
+        downstream_velocity = np.mean(self.velocities[jump_idx:downstream_region])
+        downstream_froude = np.mean(self.froude_numbers[jump_idx:downstream_region])
+        
+        return {
+            'jump_location': jump_location,
+            'upstream_depth': upstream_depth,
+            'downstream_depth': downstream_depth,
+            'upstream_velocity': upstream_velocity,
+            'downstream_velocity': downstream_velocity,
+            'upstream_froude': upstream_froude,
+            'downstream_froude': downstream_froude,
+            'jump_height': downstream_depth - upstream_depth,
+            'depth_ratio': downstream_depth / upstream_depth if upstream_depth > 0 else 0
+        }
 
 
 @dataclass
@@ -128,6 +266,7 @@ class RVFSolver:
     
     def __init__(
         self,
+        method: str = "analytical",
         transition_threshold: float = 0.1,
         froude_gradient_threshold: float = 0.5,
         convergence_tolerance: float = 1e-6,
@@ -137,23 +276,62 @@ class RVFSolver:
         Initialize RVF solver.
         
         Args:
+            method: Solution method ("analytical" or "fvm")
             transition_threshold: Threshold for detecting rapid transitions
             froude_gradient_threshold: Froude number gradient threshold for RVF detection
             convergence_tolerance: Convergence tolerance for iterative solutions
             max_iterations: Maximum iterations for convergence
         """
+        # Validate method
+        if method not in ["analytical", "fvm"]:
+            raise ValueError(f"Invalid method: {method}. Must be 'analytical' or 'fvm'")
+        
+        self.method = method
         self.transition_threshold = transition_threshold
         self.froude_gradient_threshold = froude_gradient_threshold
         self.tolerance = convergence_tolerance
         self.max_iterations = max_iterations
         self.gravity = get_gravity()
+        
+        # Initialize FVM solver if needed
+        self.fvm_solver = None
+        if method == "fvm":
+            self._initialize_fvm_solver()
+    
+    def _initialize_fvm_solver(self):
+        """Initialize FVM solver for detailed analysis."""
+        try:
+            from ..numerical.fvm import (
+                ShallowWaterSolver, ConvergenceCriteria, 
+                TimeIntegrationMethod, InletBC, OutletBC, BoundaryData
+            )
+            
+            # Create FVM solver with hydraulic-optimized settings
+            criteria = ConvergenceCriteria(
+                max_iterations=1000,
+                residual_tolerance=1e-8,
+                steady_state_tolerance=1e-10,
+                cfl_number=0.3  # Conservative for stability
+            )
+            
+            self.fvm_solver = ShallowWaterSolver(
+                scheme_name="hllc",  # Best for shocks
+                time_integration=TimeIntegrationMethod.RK4,
+                convergence_criteria=criteria
+            )
+            
+        except ImportError:
+            raise ImportError(
+                "FVM solver not available. Install FVM components or use method='analytical'"
+            )
     
     def analyze_hydraulic_jump(
         self,
         channel: ChannelGeometry,
         discharge: float,
         upstream_depth: float,
-        tailwater_depth: Optional[float] = None
+        tailwater_depth: Optional[float] = None,
+        method: Optional[str] = None
     ) -> RVFResult:
         """
         Analyze hydraulic jump characteristics.
@@ -163,125 +341,33 @@ class RVFSolver:
             discharge: Discharge (m³/s or ft³/s)
             upstream_depth: Upstream depth (supercritical)
             tailwater_depth: Tailwater depth (optional)
+            method: Override method ("analytical" or "fvm", None uses default)
             
         Returns:
             RVFResult with jump analysis
         """
         try:
+            # Determine method to use
+            analysis_method = method if method is not None else self.method
+            
+            # Validate method
+            if analysis_method not in ["analytical", "fvm"]:
+                raise ValueError(f"Invalid method: {analysis_method}")
+            
             # Validate inputs
             discharge = validate_discharge(discharge)
             upstream_depth = validate_depth(upstream_depth)
             
-            # Calculate upstream conditions
-            upstream_area = channel.area(upstream_depth)
-            upstream_velocity = discharge / upstream_area
-            upstream_froude = upstream_velocity / math.sqrt(self.gravity * upstream_depth)
-            
-            # Check if flow is supercritical (required for hydraulic jump)
-            if upstream_froude <= 1.0:
-                return RVFResult(
-                    upstream_depth=upstream_depth,
-                    downstream_depth=upstream_depth,
-                    upstream_velocity=upstream_velocity,
-                    downstream_velocity=upstream_velocity,
-                    upstream_froude=upstream_froude,
-                    downstream_froude=upstream_froude,
-                    upstream_energy=0,
-                    downstream_energy=0,
-                    energy_loss=0,
-                    energy_efficiency=1.0,
-                    momentum_change=0,
-                    jump_type=None,
-                    jump_length=None,
-                    jump_height=None,
-                    sequent_depth_ratio=None,
-                    transition_type=TransitionType.HYDRAULIC_JUMP,
-                    regime_upstream=RVFRegime.SUBCRITICAL,
-                    regime_downstream=RVFRegime.SUBCRITICAL,
-                    success=False,
-                    message="Upstream flow is subcritical - no hydraulic jump possible",
-                    properties={}
+            # Route to appropriate analysis method
+            if analysis_method == "fvm":
+                return self._analyze_hydraulic_jump_fvm(
+                    channel, discharge, upstream_depth, tailwater_depth
                 )
-            
-            # Calculate sequent depth using momentum equation
-            sequent_depth = self._calculate_sequent_depth(
-                channel, discharge, upstream_depth, upstream_velocity
-            )
-            
-            # Calculate downstream conditions
-            downstream_area = channel.area(sequent_depth)
-            downstream_velocity = discharge / downstream_area
-            downstream_froude = downstream_velocity / math.sqrt(self.gravity * sequent_depth)
-            
-            # Calculate energy conditions
-            upstream_energy = upstream_depth + upstream_velocity**2 / (2 * self.gravity)
-            downstream_energy = sequent_depth + downstream_velocity**2 / (2 * self.gravity)
-            energy_loss = upstream_energy - downstream_energy
-            energy_efficiency = downstream_energy / upstream_energy
-            
-            # Calculate momentum change
-            momentum_change = self._calculate_momentum_change(
-                channel, discharge, upstream_depth, sequent_depth
-            )
-            
-            # Classify jump type
-            jump_type = self._classify_jump_type(upstream_froude)
-            
-            # Calculate jump geometry
-            jump_length = self._calculate_jump_length(
-                upstream_depth, sequent_depth, upstream_froude, channel
-            )
-            jump_height = sequent_depth - upstream_depth
-            sequent_depth_ratio = sequent_depth / upstream_depth
-            
-            # Check tailwater adequacy
-            tailwater_adequate = True
-            tailwater_message = ""
-            if tailwater_depth is not None:
-                if tailwater_depth < sequent_depth * 0.9:
-                    tailwater_adequate = False
-                    tailwater_message = f"Tailwater depth ({tailwater_depth:.3f}) insufficient for stable jump"
-                elif tailwater_depth > sequent_depth * 1.1:
-                    tailwater_message = f"Tailwater depth ({tailwater_depth:.3f}) higher than required - submerged jump"
-            
-            # Determine regimes
-            regime_upstream = RVFRegime.SUPERCRITICAL
-            regime_downstream = RVFRegime.SUBCRITICAL if downstream_froude < 1.0 else RVFRegime.CRITICAL
-            
-            # Success message
-            message = f"Hydraulic jump analysis complete. Jump type: {jump_type.value}"
-            if tailwater_message:
-                message += f". {tailwater_message}"
-            
-            return RVFResult(
-                upstream_depth=upstream_depth,
-                downstream_depth=sequent_depth,
-                upstream_velocity=upstream_velocity,
-                downstream_velocity=downstream_velocity,
-                upstream_froude=upstream_froude,
-                downstream_froude=downstream_froude,
-                upstream_energy=upstream_energy,
-                downstream_energy=downstream_energy,
-                energy_loss=energy_loss,
-                energy_efficiency=energy_efficiency,
-                momentum_change=momentum_change,
-                jump_type=jump_type,
-                jump_length=jump_length,
-                jump_height=jump_height,
-                sequent_depth_ratio=sequent_depth_ratio,
-                transition_type=TransitionType.HYDRAULIC_JUMP,
-                regime_upstream=regime_upstream,
-                regime_downstream=regime_downstream,
-                success=True,
-                message=message,
-                properties={
-                    "tailwater_adequate": tailwater_adequate,
-                    "tailwater_depth": tailwater_depth,
-                    "energy_dissipation_ratio": energy_loss / upstream_energy,
-                    "momentum_function_upstream": self._momentum_function(channel, discharge, upstream_depth),
-                    "momentum_function_downstream": self._momentum_function(channel, discharge, sequent_depth)
-                }
-            )
+            else:
+                return self._analyze_hydraulic_jump_analytical(
+                    channel, discharge, upstream_depth, tailwater_depth
+                )
+
             
         except Exception as e:
             return RVFResult(
@@ -307,6 +393,285 @@ class RVFSolver:
                 message=f"Hydraulic jump analysis failed: {str(e)}",
                 properties={"error": str(e)}
             )
+    
+    def _analyze_hydraulic_jump_analytical(
+        self,
+        channel: ChannelGeometry,
+        discharge: float,
+        upstream_depth: float,
+        tailwater_depth: Optional[float] = None
+    ) -> RVFResult:
+        """Analyze hydraulic jump using analytical methods (original implementation)."""
+        import time
+        start_time = time.time()
+        
+        # Calculate upstream conditions
+        upstream_area = channel.area(upstream_depth)
+        upstream_velocity = discharge / upstream_area
+        upstream_froude = upstream_velocity / math.sqrt(self.gravity * upstream_depth)
+        
+        # Check if flow is supercritical (required for hydraulic jump)
+        if upstream_froude <= 1.0:
+            return RVFResult(
+                upstream_depth=upstream_depth,
+                downstream_depth=upstream_depth,
+                upstream_velocity=upstream_velocity,
+                downstream_velocity=upstream_velocity,
+                upstream_froude=upstream_froude,
+                downstream_froude=upstream_froude,
+                upstream_energy=0,
+                downstream_energy=0,
+                energy_loss=0,
+                energy_efficiency=1.0,
+                momentum_change=0,
+                jump_type=None,
+                jump_length=None,
+                jump_height=None,
+                sequent_depth_ratio=None,
+                transition_type=TransitionType.HYDRAULIC_JUMP,
+                regime_upstream=RVFRegime.SUBCRITICAL,
+                regime_downstream=RVFRegime.SUBCRITICAL,
+                success=False,
+                message="Upstream flow is subcritical - no hydraulic jump possible",
+                method_used="analytical",
+                computation_time=time.time() - start_time,
+                properties={}
+            )
+        
+        # Calculate sequent depth using momentum equation
+        sequent_depth = self._calculate_sequent_depth(
+            channel, discharge, upstream_depth, upstream_velocity
+        )
+        
+        # Calculate downstream conditions
+        downstream_area = channel.area(sequent_depth)
+        downstream_velocity = discharge / downstream_area
+        downstream_froude = downstream_velocity / math.sqrt(self.gravity * sequent_depth)
+        
+        # Calculate energy conditions
+        upstream_energy = upstream_depth + upstream_velocity**2 / (2 * self.gravity)
+        downstream_energy = sequent_depth + downstream_velocity**2 / (2 * self.gravity)
+        energy_loss = upstream_energy - downstream_energy
+        energy_efficiency = downstream_energy / upstream_energy
+        
+        # Calculate momentum change
+        momentum_change = self._calculate_momentum_change(
+            channel, discharge, upstream_depth, sequent_depth
+        )
+        
+        # Classify jump type
+        jump_type = self._classify_jump_type(upstream_froude)
+        
+        # Calculate jump geometry
+        jump_length = self._calculate_jump_length(
+            upstream_depth, sequent_depth, upstream_froude, channel
+        )
+        jump_height = sequent_depth - upstream_depth
+        sequent_depth_ratio = sequent_depth / upstream_depth
+        
+        # Check tailwater adequacy
+        tailwater_adequate = True
+        tailwater_message = ""
+        if tailwater_depth is not None:
+            if tailwater_depth < sequent_depth * 0.9:
+                tailwater_adequate = False
+                tailwater_message = f"Tailwater depth ({tailwater_depth:.3f}) insufficient for stable jump"
+            elif tailwater_depth > sequent_depth * 1.1:
+                tailwater_message = f"Tailwater depth ({tailwater_depth:.3f}) higher than required - submerged jump"
+        
+        # Determine regimes
+        regime_upstream = RVFRegime.SUPERCRITICAL
+        regime_downstream = RVFRegime.SUBCRITICAL if downstream_froude < 1.0 else RVFRegime.CRITICAL
+        
+        # Success message
+        message = f"Hydraulic jump analysis complete. Jump type: {jump_type.value}"
+        if tailwater_message:
+            message += f". {tailwater_message}"
+        
+        return RVFResult(
+            upstream_depth=upstream_depth,
+            downstream_depth=sequent_depth,
+            upstream_velocity=upstream_velocity,
+            downstream_velocity=downstream_velocity,
+            upstream_froude=upstream_froude,
+            downstream_froude=downstream_froude,
+            upstream_energy=upstream_energy,
+            downstream_energy=downstream_energy,
+            energy_loss=energy_loss,
+            energy_efficiency=energy_efficiency,
+            momentum_change=momentum_change,
+            jump_type=jump_type,
+            jump_length=jump_length,
+            jump_height=jump_height,
+            sequent_depth_ratio=sequent_depth_ratio,
+            transition_type=TransitionType.HYDRAULIC_JUMP,
+            regime_upstream=regime_upstream,
+            regime_downstream=regime_downstream,
+            success=True,
+            message=message,
+            method_used="analytical",
+            computation_time=time.time() - start_time,
+            properties={
+                "tailwater_adequate": tailwater_adequate,
+                "tailwater_depth": tailwater_depth,
+                "energy_dissipation_ratio": energy_loss / upstream_energy,
+                "momentum_function_upstream": self._momentum_function(channel, discharge, upstream_depth),
+                "momentum_function_downstream": self._momentum_function(channel, discharge, sequent_depth)
+            }
+        )
+    
+    def _analyze_hydraulic_jump_fvm(
+        self,
+        channel: ChannelGeometry,
+        discharge: float,
+        upstream_depth: float,
+        tailwater_depth: Optional[float] = None
+    ) -> RVFResult:
+        """Analyze hydraulic jump using FVM for detailed profile."""
+        import time
+        start_time = time.time()
+        
+        if self.fvm_solver is None:
+            raise RuntimeError("FVM solver not initialized. Use method='analytical' or initialize with method='fvm'")
+        
+        try:
+            from ..numerical.fvm import (
+                UniformGrid, ConservativeVariables, 
+                InletBC, OutletBC, BoundaryData
+            )
+            
+            # First get analytical solution for comparison and setup
+            analytical_result = self._analyze_hydraulic_jump_analytical(
+                channel, discharge, upstream_depth, tailwater_depth
+            )
+            
+            if not analytical_result.success:
+                # Return analytical result with FVM method flag
+                analytical_result.method_used = "fvm"
+                analytical_result.computation_time = time.time() - start_time
+                return analytical_result
+            
+            # Create FVM grid for detailed analysis
+            # Domain: upstream region + jump region + downstream region
+            jump_length_est = analytical_result.jump_length or 10.0
+            domain_length = max(50.0, jump_length_est * 5)  # 5x jump length or 50m minimum
+            grid_points = min(200, max(100, int(domain_length * 2)))  # 2 points per meter, capped
+            
+            grid = UniformGrid(
+                x_min=0.0,
+                x_max=domain_length,
+                num_cells=grid_points
+            )
+            
+            # Initialize with hydraulic jump conditions
+            jump_location = domain_length * 0.3  # Place jump at 30% of domain
+            
+            for cell in grid.cells:
+                x = cell.x_center
+                if x < jump_location:
+                    # Upstream supercritical
+                    cell.U = ConservativeVariables(
+                        h=upstream_depth,
+                        hu=upstream_depth * (discharge / channel.area(upstream_depth))
+                    )
+                else:
+                    # Downstream subcritical
+                    downstream_depth = analytical_result.downstream_depth
+                    cell.U = ConservativeVariables(
+                        h=downstream_depth,
+                        hu=downstream_depth * (discharge / channel.area(downstream_depth))
+                    )
+            
+            # Set boundary conditions
+            upstream_velocity = discharge / channel.area(upstream_depth)
+            downstream_depth = tailwater_depth or analytical_result.downstream_depth
+            
+            inlet_data = BoundaryData(depth=upstream_depth, velocity=upstream_velocity)
+            outlet_data = BoundaryData(depth=downstream_depth)
+            
+            self.fvm_solver.set_boundary_conditions(
+                InletBC("left", inlet_data),
+                OutletBC("right", outlet_data)
+            )
+            
+            # Solve FVM system
+            fvm_result = self.fvm_solver.solve(grid, steady_state=True)
+            
+            if not fvm_result.converged:
+                # Fallback to analytical with warning
+                analytical_result.method_used = "fvm"
+                analytical_result.computation_time = time.time() - start_time
+                analytical_result.message += " (FVM failed to converge - using analytical fallback)"
+                return analytical_result
+            
+            # Create detailed FVM profile
+            g = self.gravity
+            specific_energies = fvm_result.depths + fvm_result.velocities**2 / (2 * g)
+            pressure_heads = fvm_result.depths  # Hydrostatic assumption
+            
+            fvm_profile = FVMProfile(
+                x_coordinates=fvm_result.x_coordinates,
+                depths=fvm_result.depths,
+                velocities=fvm_result.velocities,
+                froude_numbers=fvm_result.froude_numbers,
+                specific_energies=specific_energies,
+                pressure_heads=pressure_heads,
+                grid_points=len(fvm_result.x_coordinates),
+                scheme_used=self.fvm_solver.scheme.name,
+                convergence_iterations=fvm_result.iterations
+            )
+            
+            # Analyze FVM results for jump characteristics
+            jump_characteristics = fvm_profile.calculate_jump_characteristics()
+            
+            # Create enhanced RVF result with FVM data
+            result = RVFResult(
+                upstream_depth=jump_characteristics.get('upstream_depth', analytical_result.upstream_depth),
+                downstream_depth=jump_characteristics.get('downstream_depth', analytical_result.downstream_depth),
+                upstream_velocity=jump_characteristics.get('upstream_velocity', analytical_result.upstream_velocity),
+                downstream_velocity=jump_characteristics.get('downstream_velocity', analytical_result.downstream_velocity),
+                upstream_froude=jump_characteristics.get('upstream_froude', analytical_result.upstream_froude),
+                downstream_froude=jump_characteristics.get('downstream_froude', analytical_result.downstream_froude),
+                upstream_energy=analytical_result.upstream_energy,
+                downstream_energy=analytical_result.downstream_energy,
+                energy_loss=analytical_result.energy_loss,
+                energy_efficiency=analytical_result.energy_efficiency,
+                momentum_change=analytical_result.momentum_change,
+                jump_type=analytical_result.jump_type,
+                jump_length=jump_characteristics.get('jump_location', analytical_result.jump_length),
+                jump_height=jump_characteristics.get('jump_height', analytical_result.jump_height),
+                sequent_depth_ratio=jump_characteristics.get('depth_ratio', analytical_result.sequent_depth_ratio),
+                transition_type=TransitionType.HYDRAULIC_JUMP,
+                regime_upstream=RVFRegime.SUPERCRITICAL,
+                regime_downstream=RVFRegime.SUBCRITICAL,
+                success=True,
+                message=f"FVM hydraulic jump analysis complete. {grid_points} grid points, {fvm_result.iterations} iterations",
+                method_used="fvm",
+                computation_time=time.time() - start_time,
+                fvm_profile=fvm_profile,
+                properties={
+                    **analytical_result.properties,
+                    "fvm_converged": fvm_result.converged,
+                    "fvm_iterations": fvm_result.iterations,
+                    "fvm_final_residual": fvm_result.final_residual,
+                    "fvm_grid_points": grid_points,
+                    "fvm_domain_length": domain_length,
+                    "fvm_scheme": self.fvm_solver.scheme.name,
+                    "mass_conservation_error": fvm_result.calculate_mass_conservation_error()
+                }
+            )
+            
+            return result
+            
+        except Exception as e:
+            # Fallback to analytical method with error message
+            analytical_result = self._analyze_hydraulic_jump_analytical(
+                channel, discharge, upstream_depth, tailwater_depth
+            )
+            analytical_result.method_used = "fvm"
+            analytical_result.computation_time = time.time() - start_time
+            analytical_result.message += f" (FVM analysis failed: {str(e)} - using analytical fallback)"
+            return analytical_result
     
     def detect_rvf_transition(
         self,

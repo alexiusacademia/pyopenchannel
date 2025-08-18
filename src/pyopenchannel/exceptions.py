@@ -75,3 +75,8 @@ class InvalidSlopeError(PyOpenChannelError):
 class ChannelCapacityExceededError(PyOpenChannelError):
     """Raised when flow exceeds channel capacity."""
     pass
+
+
+class ValidationError(PyOpenChannelError):
+    """Raised when validation tests fail or validation data is invalid."""
+    pass

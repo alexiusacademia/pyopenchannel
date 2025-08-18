@@ -29,7 +29,8 @@ from .core import (
     RVFRegime,
     JumpType,
     TransitionType,
-    ShockProperties
+    ShockProperties,
+    FVMProfile
 )
 
 # Gate flow components
@@ -37,6 +38,7 @@ from .gates import (
     GateFlowSolver,
     GateFlowAnalyzer,
     GateFlowResult,
+    GateFlowProfile,
     GateGeometry,
     GateType,
     FlowCondition,
@@ -48,6 +50,7 @@ from .weirs import (
     WeirFlowSolver,
     WeirFlowAnalyzer,
     WeirFlowResult,
+    WeirFlowProfile,
     WeirGeometry,
     WeirType,
     WeirCondition,
@@ -68,12 +71,14 @@ __all__ = [
     "GateFlowSolver",
     "GateFlowAnalyzer",
     "GateFlowResult",
+    "GateFlowProfile",
     "GateGeometry",
     
     # Weir flow classes
     "WeirFlowSolver",
     "WeirFlowAnalyzer", 
     "WeirFlowResult",
+    "WeirFlowProfile",
     "WeirGeometry",
     
     # Enums
@@ -89,4 +94,5 @@ __all__ = [
     
     # Data structures
     "ShockProperties",
+    "FVMProfile",
 ]

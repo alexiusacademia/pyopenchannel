@@ -29,8 +29,9 @@ PROFESSIONAL CAPABILITIES:
 """
 
 import math
+import numpy as np
 from typing import Dict, List, Optional, Tuple, Any, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from ..geometry import ChannelGeometry, RectangularChannel, TrapezoidalChannel
@@ -40,6 +41,7 @@ from ..validators import validate_discharge, validate_depth, validate_positive
 from ..exceptions import ConvergenceError, InvalidFlowConditionError
 from ..units import get_gravity
 from .core import RVFSolver, RVFResult, TransitionType
+from .gates import CavitationRisk
 
 
 class WeirType(Enum):
@@ -153,6 +155,216 @@ class WeirFlowResult:
     spillway_profile: Optional[List[Tuple[float, float]]] = None
     aeration_analysis: Optional[Dict[str, Any]] = None
     approach_flow_analysis: Optional[Dict[str, Any]] = None
+    
+    # FVM integration fields
+    method_used: str = "analytical"
+    computation_time: float = 0.0
+    fvm_profile: Optional['WeirFlowProfile'] = None
+    
+    @property
+    def has_detailed_profile(self) -> bool:
+        """Check if detailed FVM profile is available."""
+        return self.method_used == "fvm" and self.fvm_profile is not None
+    
+    @property
+    def profile_resolution(self) -> str:
+        """Get profile resolution description."""
+        if self.method_used == "analytical":
+            return "3-point (analytical)"
+        elif self.has_detailed_profile:
+            return f"{len(self.fvm_profile.x_coordinates)}-point (FVM)"
+        else:
+            return "3-point (analytical fallback)"
+
+
+@dataclass
+class WeirFlowProfile:
+    """
+    Detailed FVM profile data for weir flow analysis.
+    
+    Contains high-resolution flow field data from FVM simulation,
+    providing detailed insight into weir flow structure including
+    pressure distribution over weir crest, velocity profiles,
+    aeration analysis, and cavitation assessment.
+    """
+    # Spatial coordinates
+    x_coordinates: np.ndarray
+    
+    # Primary flow variables
+    depths: np.ndarray
+    velocities: np.ndarray
+    froude_numbers: np.ndarray
+    
+    # Energy and pressure
+    specific_energies: np.ndarray
+    pressure_heads: np.ndarray
+    
+    # Weir-specific properties
+    weir_crest_location: float
+    weir_length: float
+    weir_height: float
+    
+    # Computational metadata
+    grid_points: int = 0
+    scheme_used: str = ""
+    convergence_iterations: int = 0
+    
+    @property
+    def domain_length(self) -> float:
+        """Get total domain length."""
+        return self.x_coordinates[-1] - self.x_coordinates[0]
+    
+    @property
+    def resolution(self) -> float:
+        """Get average grid resolution."""
+        return self.domain_length / len(self.x_coordinates)
+    
+    def get_profile_at_x(self, x: float) -> Dict[str, float]:
+        """Get flow properties at specific x location using interpolation."""
+        if x < self.x_coordinates[0] or x > self.x_coordinates[-1]:
+            raise ValueError(f"x = {x} is outside profile domain")
+        
+        # Linear interpolation
+        depth = np.interp(x, self.x_coordinates, self.depths)
+        velocity = np.interp(x, self.x_coordinates, self.velocities)
+        froude = np.interp(x, self.x_coordinates, self.froude_numbers)
+        energy = np.interp(x, self.x_coordinates, self.specific_energies)
+        pressure = np.interp(x, self.x_coordinates, self.pressure_heads)
+        
+        return {
+            'depth': depth,
+            'velocity': velocity,
+            'froude': froude,
+            'specific_energy': energy,
+            'pressure_head': pressure
+        }
+    
+    def find_weir_crest_conditions(self) -> Dict[str, float]:
+        """Find flow conditions at weir crest."""
+        # Find index closest to weir crest
+        crest_idx = np.argmin(np.abs(self.x_coordinates - self.weir_crest_location))
+        
+        return {
+            'crest_depth': self.depths[crest_idx],
+            'crest_velocity': self.velocities[crest_idx],
+            'crest_froude': self.froude_numbers[crest_idx],
+            'crest_energy': self.specific_energies[crest_idx],
+            'crest_pressure': self.pressure_heads[crest_idx]
+        }
+    
+    def analyze_pressure_distribution(self) -> Dict[str, Any]:
+        """Analyze pressure distribution over weir for cavitation assessment."""
+        # Find weir region
+        weir_start = self.weir_crest_location
+        weir_end = self.weir_crest_location + self.weir_length
+        
+        weir_mask = (self.x_coordinates >= weir_start) & (self.x_coordinates <= weir_end)
+        weir_pressures = self.pressure_heads[weir_mask]
+        weir_x = self.x_coordinates[weir_mask]
+        
+        if len(weir_pressures) == 0:
+            return {}
+        
+        min_pressure = np.min(weir_pressures)
+        min_pressure_location = weir_x[np.argmin(weir_pressures)]
+        max_pressure = np.max(weir_pressures)
+        avg_pressure = np.mean(weir_pressures)
+        
+        # Cavitation risk assessment
+        cavitation_threshold = 2.0  # meters of water (approximate)
+        
+        if min_pressure < cavitation_threshold:
+            if min_pressure < 0.5:
+                cavitation_risk = "SEVERE"
+            elif min_pressure < 1.0:
+                cavitation_risk = "HIGH"
+            else:
+                cavitation_risk = "MODERATE"
+        else:
+            cavitation_risk = "LOW"
+        
+        return {
+            'min_pressure': min_pressure,
+            'min_pressure_location': min_pressure_location,
+            'max_pressure': max_pressure,
+            'avg_pressure': avg_pressure,
+            'pressure_range': max_pressure - min_pressure,
+            'cavitation_risk': cavitation_risk,
+            'cavitation_threshold': cavitation_threshold,
+            'pressure_margin': min_pressure - cavitation_threshold
+        }
+    
+    def analyze_velocity_distribution(self) -> Dict[str, Any]:
+        """Analyze velocity distribution for aeration requirements."""
+        max_velocity = np.max(self.velocities)
+        max_velocity_location = self.x_coordinates[np.argmax(self.velocities)]
+        avg_velocity = np.mean(self.velocities)
+        
+        # Find velocity at weir crest
+        crest_conditions = self.find_weir_crest_conditions()
+        crest_velocity = crest_conditions['crest_velocity']
+        
+        # Aeration requirement assessment (simplified)
+        if max_velocity > 15.0:
+            aeration_level = "HIGH"
+        elif max_velocity > 10.0:
+            aeration_level = "MODERATE"
+        elif max_velocity > 6.0:
+            aeration_level = "LOW"
+        else:
+            aeration_level = "NONE"
+        
+        return {
+            'max_velocity': max_velocity,
+            'max_velocity_location': max_velocity_location,
+            'avg_velocity': avg_velocity,
+            'crest_velocity': crest_velocity,
+            'velocity_increase': max_velocity - avg_velocity,
+            'aeration_requirement': aeration_level
+        }
+    
+    def analyze_energy_dissipation(self) -> Dict[str, Any]:
+        """Analyze energy dissipation downstream of weir."""
+        # Upstream energy (before weir)
+        upstream_region = self.x_coordinates < self.weir_crest_location
+        if np.any(upstream_region):
+            upstream_energy = np.mean(self.specific_energies[upstream_region])
+        else:
+            upstream_energy = self.specific_energies[0]
+        
+        # Downstream energy (after weir)
+        downstream_region = self.x_coordinates > (self.weir_crest_location + self.weir_length)
+        if np.any(downstream_region):
+            downstream_energy = np.mean(self.specific_energies[downstream_region])
+        else:
+            downstream_energy = self.specific_energies[-1]
+        
+        energy_loss = upstream_energy - downstream_energy
+        energy_efficiency = downstream_energy / upstream_energy if upstream_energy > 0 else 0
+        
+        return {
+            'upstream_energy': upstream_energy,
+            'downstream_energy': downstream_energy,
+            'energy_loss': energy_loss,
+            'energy_efficiency': energy_efficiency,
+            'energy_dissipation_ratio': energy_loss / upstream_energy if upstream_energy > 0 else 0
+        }
+    
+    def calculate_spillway_characteristics(self) -> Dict[str, Any]:
+        """Calculate detailed spillway flow characteristics."""
+        crest_conditions = self.find_weir_crest_conditions()
+        pressure_analysis = self.analyze_pressure_distribution()
+        velocity_analysis = self.analyze_velocity_distribution()
+        energy_analysis = self.analyze_energy_dissipation()
+        
+        return {
+            **crest_conditions,
+            **pressure_analysis,
+            **velocity_analysis,
+            **energy_analysis,
+            'weir_efficiency': energy_analysis['energy_efficiency'],
+            'flow_stability': 'stable' if pressure_analysis.get('cavitation_risk', 'HIGH') == 'LOW' else 'unstable'
+        }
 
 
 class WeirFlowSolver:
@@ -170,6 +382,7 @@ class WeirFlowSolver:
     
     def __init__(
         self,
+        method: str = "analytical",
         convergence_tolerance: float = 1e-6,
         max_iterations: int = 100
     ):
@@ -177,12 +390,50 @@ class WeirFlowSolver:
         Initialize weir flow solver.
         
         Args:
+            method: Solution method ("analytical" or "fvm")
             convergence_tolerance: Convergence tolerance for iterative solutions
             max_iterations: Maximum iterations for convergence
         """
+        # Validate method
+        if method not in ["analytical", "fvm"]:
+            raise ValueError(f"Invalid method: {method}. Must be 'analytical' or 'fvm'")
+        
+        self.method = method
         self.tolerance = convergence_tolerance
         self.max_iterations = max_iterations
         self.gravity = get_gravity()
+        
+        # Initialize FVM solver if needed
+        self.fvm_solver = None
+        if method == "fvm":
+            self._initialize_fvm_solver()
+    
+    def _initialize_fvm_solver(self):
+        """Initialize FVM solver for detailed weir flow analysis."""
+        try:
+            from ..numerical.fvm import (
+                ShallowWaterSolver, ConvergenceCriteria, 
+                TimeIntegrationMethod, InletBC, OutletBC, BoundaryData
+            )
+            
+            # Create FVM solver optimized for weir flow
+            criteria = ConvergenceCriteria(
+                max_iterations=1000,
+                residual_tolerance=1e-8,
+                steady_state_tolerance=1e-10,
+                cfl_number=0.15  # Very conservative for complex weir geometry
+            )
+            
+            self.fvm_solver = ShallowWaterSolver(
+                scheme_name="hllc",  # Best for complex flow patterns and shocks
+                time_integration=TimeIntegrationMethod.RK4,
+                convergence_criteria=criteria
+            )
+            
+        except ImportError:
+            raise ImportError(
+                "FVM solver not available. Install FVM components or use method='analytical'"
+            )
         self.rvf_solver = RVFSolver()
     
     def analyze_weir_flow(
@@ -191,7 +442,8 @@ class WeirFlowSolver:
         weir: WeirGeometry,
         approach_depth: float,
         discharge: Optional[float] = None,
-        downstream_depth: Optional[float] = None
+        downstream_depth: Optional[float] = None,
+        method: Optional[str] = None
     ) -> WeirFlowResult:
         """
         Analyze flow over a weir.
@@ -202,17 +454,35 @@ class WeirFlowSolver:
             approach_depth: Approach flow depth
             discharge: Known discharge (optional, will be calculated if not provided)
             downstream_depth: Downstream water depth (optional)
+            method: Override method ("analytical" or "fvm", None uses default)
             
         Returns:
             WeirFlowResult with complete analysis
         """
         try:
+            # Determine method to use
+            analysis_method = method if method is not None else self.method
+            
+            # Validate method
+            if analysis_method not in ["analytical", "fvm"]:
+                raise ValueError(f"Invalid method: {analysis_method}")
+            
             # Validate inputs
             approach_depth = validate_depth(approach_depth)
             if discharge is not None:
                 discharge = validate_discharge(discharge)
             if downstream_depth is not None:
                 downstream_depth = validate_depth(downstream_depth)
+            
+            # Route to appropriate analysis method
+            if analysis_method == "fvm":
+                return self._analyze_weir_flow_fvm(
+                    channel, weir, approach_depth, discharge, downstream_depth
+                )
+            else:
+                return self._analyze_weir_flow_analytical(
+                    channel, weir, approach_depth, discharge, downstream_depth
+                )
             
             # Calculate head over weir
             head_over_weir = approach_depth - weir.weir_height
@@ -308,6 +578,294 @@ class WeirFlowSolver:
             
         except Exception as e:
             return self._create_failed_result(weir, f"Weir flow analysis failed: {str(e)}")
+    
+    def _analyze_weir_flow_analytical(
+        self,
+        channel: ChannelGeometry,
+        weir: WeirGeometry,
+        approach_depth: float,
+        discharge: Optional[float] = None,
+        downstream_depth: Optional[float] = None
+    ) -> WeirFlowResult:
+        """Analyze weir flow using analytical methods (original implementation)."""
+        import time
+        start_time = time.time()
+        
+        # Calculate head over weir
+        head_over_weir = approach_depth - weir.weir_height
+        
+        if head_over_weir <= 0:
+            result = self._create_failed_result(
+                weir, "Approach depth is below weir crest - no flow over weir"
+            )
+            result.method_used = "analytical"
+            result.computation_time = time.time() - start_time
+            return result
+        
+        # Calculate discharge if not provided
+        if discharge is None:
+            discharge = self._calculate_weir_discharge(
+                channel, weir, approach_depth, head_over_weir
+            )
+        
+        # Determine weir condition (free flow vs submerged)
+        weir_condition = self._classify_weir_condition(
+            weir, approach_depth, downstream_depth, head_over_weir
+        )
+        
+        # Calculate hydraulic parameters
+        result = self._calculate_weir_hydraulics(
+            channel, weir, approach_depth, discharge, head_over_weir, 
+            downstream_depth, weir_condition
+        )
+        
+        # Add method information
+        result.method_used = "analytical"
+        result.computation_time = time.time() - start_time
+        
+        return result
+    
+    def _analyze_weir_flow_fvm(
+        self,
+        channel: ChannelGeometry,
+        weir: WeirGeometry,
+        approach_depth: float,
+        discharge: Optional[float] = None,
+        downstream_depth: Optional[float] = None
+    ) -> WeirFlowResult:
+        """Analyze weir flow using FVM for detailed pressure and velocity profiles."""
+        import time
+        start_time = time.time()
+        
+        if self.fvm_solver is None:
+            raise RuntimeError("FVM solver not initialized. Use method='analytical' or initialize with method='fvm'")
+        
+        try:
+            from ..numerical.fvm import (
+                UniformGrid, ConservativeVariables, 
+                InletBC, OutletBC, BoundaryData
+            )
+            
+            # First get analytical solution for comparison and setup
+            analytical_result = self._analyze_weir_flow_analytical(
+                channel, weir, approach_depth, discharge, downstream_depth
+            )
+            
+            if not analytical_result.success:
+                # Return analytical result with FVM method flag
+                analytical_result.method_used = "fvm"
+                analytical_result.computation_time = time.time() - start_time
+                return analytical_result
+            
+            # Create FVM grid for detailed weir flow analysis
+            # Domain: upstream approach + weir region + downstream recovery
+            weir_length = max(weir.effective_length, 5.0)  # Minimum 5m weir length
+            upstream_length = max(30.0, approach_depth * 15)  # 15x approach depth
+            downstream_length = max(40.0, approach_depth * 20)  # 20x approach depth for energy dissipation
+            domain_length = upstream_length + weir_length + downstream_length
+            
+            # Very high resolution for weir flow (pressure gradients are steep)
+            grid_points = min(400, max(200, int(domain_length * 4)))  # 4 points per meter
+            
+            grid = UniformGrid(
+                x_min=0.0,
+                x_max=domain_length,
+                num_cells=grid_points
+            )
+            
+            # Initialize flow field with weir flow conditions
+            weir_crest_location = upstream_length
+            
+            for cell in grid.cells:
+                x = cell.x_center
+                if x < weir_crest_location:
+                    # Upstream approach flow
+                    approach_velocity = analytical_result.approach_velocity
+                    cell.U = ConservativeVariables(
+                        h=approach_depth,
+                        hu=approach_depth * approach_velocity
+                    )
+                elif x < weir_crest_location + weir_length:
+                    # Weir region - critical/supercritical flow
+                    # Use critical depth as approximation
+                    critical_depth = analytical_result.head_over_weir * 0.67  # Approximate
+                    critical_velocity = analytical_result.discharge / (channel.area(critical_depth))
+                    cell.U = ConservativeVariables(
+                        h=critical_depth,
+                        hu=critical_depth * critical_velocity
+                    )
+                else:
+                    # Downstream recovery
+                    if downstream_depth is not None:
+                        downstream_velocity = analytical_result.discharge / channel.area(downstream_depth)
+                        cell.U = ConservativeVariables(
+                            h=downstream_depth,
+                            hu=downstream_depth * downstream_velocity
+                        )
+                    else:
+                        # Use approach conditions as fallback
+                        cell.U = ConservativeVariables(
+                            h=approach_depth,
+                            hu=approach_depth * analytical_result.approach_velocity
+                        )
+            
+            # Set boundary conditions
+            inlet_data = BoundaryData(
+                depth=approach_depth, 
+                velocity=analytical_result.approach_velocity
+            )
+            
+            if downstream_depth is not None:
+                outlet_data = BoundaryData(depth=downstream_depth)
+            else:
+                # Use critical depth boundary
+                outlet_data = BoundaryData(depth=approach_depth * 0.8)  # Approximate
+            
+            self.fvm_solver.set_boundary_conditions(
+                InletBC("left", inlet_data),
+                OutletBC("right", outlet_data)
+            )
+            
+            # Solve FVM system
+            fvm_result = self.fvm_solver.solve(grid, steady_state=True)
+            
+            if not fvm_result.converged:
+                # Fallback to analytical with warning
+                analytical_result.method_used = "fvm"
+                analytical_result.computation_time = time.time() - start_time
+                analytical_result.message += " (FVM failed to converge - using analytical fallback)"
+                return analytical_result
+            
+            # Create detailed FVM profile for weir flow
+            g = self.gravity
+            specific_energies = fvm_result.depths + fvm_result.velocities**2 / (2 * g)
+            
+            # Calculate pressure distribution (critical for cavitation analysis)
+            pressure_heads = []
+            for i, (depth, velocity) in enumerate(zip(fvm_result.depths, fvm_result.velocities)):
+                # Pressure head considering elevation changes over weir
+                x = fvm_result.x_coordinates[i]
+                
+                # Approximate weir profile elevation
+                if weir_crest_location <= x <= weir_crest_location + weir_length:
+                    # On weir crest
+                    weir_elevation = weir.weir_height
+                else:
+                    # Channel bottom
+                    weir_elevation = 0.0
+                
+                # Pressure head = total head - velocity head - elevation
+                pressure_head = specific_energies[i] - velocity**2 / (2 * g) - weir_elevation
+                pressure_heads.append(max(0, pressure_head))  # Prevent negative pressures
+            
+            pressure_heads = np.array(pressure_heads)
+            
+            # Create weir flow profile
+            weir_profile = WeirFlowProfile(
+                x_coordinates=fvm_result.x_coordinates,
+                depths=fvm_result.depths,
+                velocities=fvm_result.velocities,
+                froude_numbers=fvm_result.froude_numbers,
+                specific_energies=specific_energies,
+                pressure_heads=pressure_heads,
+                weir_crest_location=weir_crest_location,
+                weir_length=weir_length,
+                weir_height=weir.weir_height,
+                grid_points=len(fvm_result.x_coordinates),
+                scheme_used=self.fvm_solver.scheme.name,
+                convergence_iterations=fvm_result.iterations
+            )
+            
+            # Analyze detailed weir flow characteristics
+            spillway_characteristics = weir_profile.calculate_spillway_characteristics()
+            
+            # Create enhanced weir flow result with FVM data
+            result = WeirFlowResult(
+                weir_type=weir.weir_type,
+                weir_height=weir.weir_height,
+                effective_length=weir.effective_length,
+                discharge=analytical_result.discharge,
+                head_over_weir=analytical_result.head_over_weir,
+                approach_depth=analytical_result.approach_depth,
+                approach_velocity=analytical_result.approach_velocity,
+                downstream_depth=analytical_result.downstream_depth,
+                discharge_coefficient=analytical_result.discharge_coefficient,
+                velocity_coefficient=analytical_result.velocity_coefficient,
+                approach_velocity_factor=analytical_result.approach_velocity_factor,
+                submergence_factor=analytical_result.submergence_factor,
+                approach_energy=analytical_result.approach_energy,
+                crest_energy=spillway_characteristics.get('crest_energy', analytical_result.crest_energy),
+                downstream_energy=analytical_result.downstream_energy,
+                energy_dissipated=spillway_characteristics.get('energy_loss', analytical_result.energy_dissipated),
+                energy_efficiency=spillway_characteristics.get('energy_efficiency', analytical_result.energy_efficiency),
+                weir_condition=analytical_result.weir_condition,
+                froude_approach=analytical_result.froude_approach,
+                froude_downstream=analytical_result.froude_downstream,
+                modular_limit=analytical_result.modular_limit,
+                submergence_ratio=analytical_result.submergence_ratio,
+                aeration_requirement=self._assess_aeration_from_fvm(spillway_characteristics),
+                cavitation_risk=self._assess_cavitation_from_fvm(spillway_characteristics),
+                cavitation_index=spillway_characteristics.get('pressure_margin', analytical_result.cavitation_index),
+                nappe_trajectory=analytical_result.nappe_trajectory,
+                energy_dissipation_length=analytical_result.energy_dissipation_length,
+                scour_potential=analytical_result.scour_potential,
+                success=True,
+                message=f"FVM weir flow analysis complete. {grid_points} grid points, {fvm_result.iterations} iterations",
+                method_used="fvm",
+                computation_time=time.time() - start_time,
+                fvm_profile=weir_profile,
+                properties={
+                    **analytical_result.properties,
+                    "fvm_converged": fvm_result.converged,
+                    "fvm_iterations": fvm_result.iterations,
+                    "fvm_final_residual": fvm_result.final_residual,
+                    "fvm_grid_points": grid_points,
+                    "fvm_domain_length": domain_length,
+                    "fvm_scheme": self.fvm_solver.scheme.name,
+                    "mass_conservation_error": fvm_result.calculate_mass_conservation_error(),
+                    **spillway_characteristics
+                }
+            )
+            
+            return result
+            
+        except Exception as e:
+            # Fallback to analytical method with error message
+            analytical_result = self._analyze_weir_flow_analytical(
+                channel, weir, approach_depth, discharge, downstream_depth
+            )
+            analytical_result.method_used = "fvm"
+            analytical_result.computation_time = time.time() - start_time
+            analytical_result.message += f" (FVM analysis failed: {str(e)} - using analytical fallback)"
+            return analytical_result
+    
+    def _assess_aeration_from_fvm(self, spillway_characteristics: Dict[str, Any]) -> 'AerationLevel':
+        """Assess aeration requirements from FVM velocity analysis."""
+        aeration_req = spillway_characteristics.get('aeration_requirement', 'LOW')
+        
+        # Convert string to enum
+        if aeration_req == 'HIGH':
+            return AerationLevel.HIGH
+        elif aeration_req == 'MODERATE':
+            return AerationLevel.MODERATE
+        elif aeration_req == 'LOW':
+            return AerationLevel.LOW
+        else:
+            return AerationLevel.NONE
+    
+    def _assess_cavitation_from_fvm(self, spillway_characteristics: Dict[str, Any]) -> 'CavitationRisk':
+        """Assess cavitation risk from FVM pressure analysis."""
+        cavitation_risk = spillway_characteristics.get('cavitation_risk', 'LOW')
+        
+        # Convert string to enum (assuming CavitationRisk is imported from gates)
+        if cavitation_risk == 'SEVERE':
+            return CavitationRisk.SEVERE
+        elif cavitation_risk == 'HIGH':
+            return CavitationRisk.HIGH
+        elif cavitation_risk == 'MODERATE':
+            return CavitationRisk.MODERATE
+        else:
+            return CavitationRisk.LOW
     
     def design_weir_dimensions(
         self,
