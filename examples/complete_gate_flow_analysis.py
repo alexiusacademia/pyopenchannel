@@ -525,7 +525,10 @@ def create_separate_profile_plots(profile, jump_analysis, scenario):
     plt.legend(fontsize=12)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+    
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("complete_gate_flow_analysis")
     
     # Plot 2: Velocity Profile
     plt.figure(figsize=(16, 8))
@@ -550,7 +553,10 @@ def create_separate_profile_plots(profile, jump_analysis, scenario):
     plt.legend(fontsize=12)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+    
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("complete_gate_flow_analysis")
     
     # Plot 3: Froude Number Profile
     plt.figure(figsize=(16, 8))
@@ -575,7 +581,10 @@ def create_separate_profile_plots(profile, jump_analysis, scenario):
     plt.legend(fontsize=12)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+    
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("complete_gate_flow_analysis")
     
     # Plot 4: Energy Profile
     plt.figure(figsize=(16, 8))
@@ -601,7 +610,10 @@ def create_separate_profile_plots(profile, jump_analysis, scenario):
     plt.legend(fontsize=12)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+    
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("complete_gate_flow_analysis")
     
     # Plot 5: Pressure Profile
     plt.figure(figsize=(16, 8))
@@ -635,7 +647,10 @@ def create_separate_profile_plots(profile, jump_analysis, scenario):
     plt.legend(fontsize=12)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+    
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("complete_gate_flow_analysis")
     
     # Plot 6: Hydraulic Jump Detail
     jump_mask = (x >= profile['jump_start'] - 5) & (x <= profile['jump_end'] + 5)
@@ -672,7 +687,10 @@ def create_separate_profile_plots(profile, jump_analysis, scenario):
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
+    
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("complete_gate_flow_analysis_energy")
     
     print("✅ All separate profile plots created successfully!")
 

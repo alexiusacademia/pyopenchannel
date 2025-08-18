@@ -384,8 +384,9 @@ def create_spillway_visualization(result, discharge, spillway_width, crest_eleva
     plt.savefig('spillway_analysis.png', dpi=300, bbox_inches='tight')
     print(f"   ✅ Spillway analysis plots saved as 'spillway_analysis.png'")
     
-    # Show the plot
-    plt.show()
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("rvf_submerged_ogee_weir_analysis")
 
 
 def create_spillway_profile_plot(ax, result, crest_elev, upstream_elev, downstream_elev, tailwater_elev):
@@ -700,9 +701,10 @@ def create_detailed_spillway_plot(result, discharge, spillway_width, crest_eleva
     
     # Save detailed plot
     plt.tight_layout()
-    plt.savefig('spillway_cross_section.png', dpi=300, bbox_inches='tight')
-    print(f"   ✅ Detailed cross-section saved as 'spillway_cross_section.png'")
-    plt.show()
+    
+    # Save and show the plot
+    from plot_utils import save_and_show_plot
+    save_and_show_plot("rvf_submerged_ogee_weir_cross_section")
 
 
 def main():

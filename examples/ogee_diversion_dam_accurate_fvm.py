@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """
-CORRECTED PHYSICS Ogee Diversion Dam FVM Analysis - PyOpenChannel
+RIGOROUS Ogee Diversion Dam Analysis using PyOpenChannel Spillway Utilities
+
+This version uses RIGOROUS spillway utilities that replace ALL assumptions
+with physics-based calculations:
+
+1. WES standard spillway geometry (automatic)
+2. Momentum-based water nape trajectory  
+3. GVF analysis for spillway exit depth
+4. RVF analysis for hydraulic jump
+5. Complete physics-based flow profile
 
 Author: Alexius Academia
 Email: alexius.sayco.academia@gmail.com
 
-This version FIXES all the numerical issues:
-1. Proper depth initialization (no zero depths)
-2. Robust velocity calculations
-3. Correct pressure head calculations
-4. Accurate jump detection
-5. Proper flow field continuity
-
-FIXES APPLIED:
-- Minimum depth enforcement (1cm minimum)
-- Robust division handling
-- Proper flow field initialization
-- Correct spillway flow calculations
-- Fixed jump detection logic
+RIGOROUS FEATURES:
+- No arbitrary assumptions or fixed factors
+- WES standard spillway geometry
+- Momentum balance for trajectory calculations  
+- GVF/RVF analysis for flow profiles
+- Professional engineering accuracy
 """
 
 import sys
