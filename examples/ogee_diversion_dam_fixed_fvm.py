@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CORRECTED PHYSICS Ogee Diversion Dam FVM Analysis - PyOpenChannel
+FIXED Ogee Diversion Dam FVM Analysis - PyOpenChannel
 
 Author: Alexius Academia
 Email: alexius.sayco.academia@gmail.com
@@ -135,7 +135,7 @@ def create_fixed_fvm_grid(scenario, dx=0.05):
     print(f"\n📐 Creating Fixed FVM Grid (dx = {dx:.3f} m):")
     
     # Domain configuration
-    upstream_length = 25.0  # Reasonable upstream domain
+    upstream_length = 100.0  # Reasonable upstream domain
     spillway_length = scenario['spillway_length']
     downstream_length = 80.0  # Sufficient for jump and recovery
     
@@ -180,16 +180,13 @@ def calculate_jump_location(scenario):
     # Jump length using U.S. Bureau of Reclamation formula
     jump_length = 6.0 * (sequent_depth - spillway_exit_depth)
     
-    # Jump location depends on tailwater conditions and ogee trajectory
-    # Account for water trajectory after leaving spillway (follows water nape)
-    spillway_exit_trajectory_length = 2.0  # Distance water travels following nape before jump
-    
+    # Jump location depends on tailwater conditions
     if sequent_depth <= scenario['tailwater_depth'] * 1.05:
-        # Perfect jump - starts after water nape trajectory
-        jump_start = scenario['spillway_length'] + spillway_exit_trajectory_length
+        # Perfect jump - starts at spillway toe
+        jump_start = scenario['spillway_length']
     else:
-        # Drowned jump - may be pushed downstream slightly more
-        jump_start = scenario['spillway_length'] + spillway_exit_trajectory_length + 1.0
+        # Drowned jump - may be pushed downstream slightly
+        jump_start = scenario['spillway_length'] + 2.0
     
     jump_end = jump_start + jump_length
     
@@ -254,13 +251,10 @@ def solve_complete_flow_field(scenario, grid_data, jump_data):
     for i, x_pos in enumerate(x):
         
         if x_pos < spillway_start:
-            # Upstream region - SIMPLE, REALISTIC backwater curve (like original)
+            # Upstream region - backwater curve
             distance_from_spillway = abs(x_pos - spillway_start)
-            backwater_decay = np.exp(-distance_from_spillway / 100.0)
-            
-            # GENTLE backwater rise (much smaller than before)
-            depths[i] = scenario['upstream_depth'] * (1 + 0.005 * backwater_decay)
-            
+            backwater_decay = np.exp(-distance_from_spillway / 50.0)
+            depths[i] = scenario['upstream_depth'] * (1 - 0.05 * (1 - backwater_decay))
             depths[i] = max(depths[i], min_depth)
             velocities[i] = scenario['discharge'] / (scenario['width'] * depths[i])
             elevations[i] = scenario['upstream_apron_elevation'] + depths[i]
@@ -270,11 +264,9 @@ def solve_complete_flow_field(scenario, grid_data, jump_data):
             spillway_progress = (x_pos - spillway_start) / (spillway_end - spillway_start)
             
             if spillway_progress <= 0.3:
-                # Approach to crest - MUST transition to critical depth, not use upstream depth!
-                # The spillway approach should drop from ~2m to critical depth (1.733m)
-                approach_start_depth = scenario['critical_depth'] * 1.2  # Start at 120% of critical
-                depth_range = approach_start_depth - scenario['critical_depth']
-                depths[i] = approach_start_depth - depth_range * (spillway_progress / 0.3)
+                # Approach to crest
+                depth_factor = 1.0 - 0.2 * (spillway_progress / 0.3)
+                depths[i] = scenario['head_over_weir'] * depth_factor
             elif spillway_progress <= 0.7:
                 # Over crest - critical depth region
                 depths[i] = scenario['critical_depth'] * 1.05
@@ -392,16 +384,7 @@ def create_comprehensive_visualization(solution, scenario):
     jump_data = solution['jump_data']
     
     # Plot 1: Complete Water Surface Profile
-    fig = plt.figure(figsize=(20, 12))
-    
-    # Calculate plot bounds to ensure everything fits
-    x_min, x_max = np.min(x), np.max(x)
-    y_min = min(scenario['downstream_apron_elevation'], np.min(elevations)) - 0.5
-    y_max = max(scenario['tailwater_elevation'], np.max(elevations)) + 1.0
-    
-    # Add some padding
-    x_padding = (x_max - x_min) * 0.05
-    y_padding = (y_max - y_min) * 0.1
+    plt.figure(figsize=(20, 12))
     
     # Water body
     plt.fill_between(x, scenario['downstream_apron_elevation'], elevations, 
@@ -409,53 +392,10 @@ def create_comprehensive_visualization(solution, scenario):
     plt.plot(x, elevations, 'b-', linewidth=3, label='Water Surface Profile (Fixed FVM)', alpha=0.9)
     
     # Dam structure
-    # Enhanced Ogee Profile - Continuous trajectory following water nape
-    def create_ogee_profile(x_start, x_end, crest_elev, downstream_elev, design_head):
-        """Create realistic ogee profile following water nape trajectory"""
-        x_ogee = np.linspace(x_start, x_end, 100)
-        x_rel = x_ogee - x_start
-        spillway_length = x_end - x_start
-        
-        # WES standard ogee profile coordinates (normalized)
-        # Upstream face (approach): vertical to slightly curved
-        # Crest: circular arc with radius based on design head
-        # Downstream face: follows free-falling water trajectory
-        
-        profile_elev = np.zeros_like(x_rel)
-        for i, x_pos in enumerate(x_rel):
-            progress = x_pos / spillway_length
-            
-            if progress <= 0.2:
-                # Approach section - slight curve
-                profile_elev[i] = crest_elev - 0.05 * design_head * (progress / 0.2)**2
-            elif progress <= 0.4:
-                # Crest section - circular arc
-                crest_progress = (progress - 0.2) / 0.2
-                profile_elev[i] = crest_elev - 0.05 * design_head * (1 + 0.5 * crest_progress)
-            else:
-                # Downstream face - follows water nape (parabolic trajectory)
-                downstream_progress = (progress - 0.4) / 0.6
-                # Water nape equation: y = -x²/(2*V²/g) where V is velocity at crest
-                V_crest = np.sqrt(2 * 9.81 * design_head)  # Critical velocity
-                x_distance = downstream_progress * spillway_length * 0.6
-                nape_drop = x_distance**2 / (2 * V_crest**2 / 9.81)
-                profile_elev[i] = crest_elev - 0.08 * design_head - nape_drop * 0.5
-        
-        # Ensure it reaches downstream apron
-        profile_elev[-1] = downstream_elev
-        
-        return x_ogee, profile_elev
+    spillway_x = np.linspace(solution['spillway_start'], solution['spillway_end'], 50)
+    spillway_bed = scenario['crest_elevation'] - 0.3 * ((spillway_x - solution['spillway_start']) / (solution['spillway_end'] - solution['spillway_start']))**1.5
     
-    # Create continuous ogee profile
-    spillway_x, spillway_bed = create_ogee_profile(
-        solution['spillway_start'], 
-        solution['spillway_end'], 
-        scenario['crest_elevation'],
-        scenario['downstream_apron_elevation'],
-        scenario['head_over_weir']
-    )
-    
-    plt.plot(spillway_x, spillway_bed, 'k-', linewidth=4, label='Ogee Spillway (Water Nape)')
+    plt.plot(spillway_x, spillway_bed, 'k-', linewidth=4, label='Ogee Spillway')
     plt.fill_between(spillway_x, scenario['downstream_apron_elevation'], spillway_bed, 
                     color='gray', alpha=0.8)
     
@@ -468,26 +408,11 @@ def create_comprehensive_visualization(solution, scenario):
     downstream_y = [scenario['downstream_apron_elevation'], scenario['downstream_apron_elevation']]
     plt.plot(downstream_x, downstream_y, 'k-', linewidth=4, label='Downstream Apron')
     
-    # Calculate adjusted jump start based on ogee trajectory
-    # Jump should start where supercritical flow from spillway meets tailwater influence
-    spillway_exit_elevation = spillway_bed[-1]  # Last point of ogee profile
-    adjusted_jump_start = solution['spillway_end'] + 2.0  # Small gap after spillway exit
-    
-    # Mark enhanced regions with better visualization
+    # Mark regions
     plt.axvspan(solution['spillway_start'], solution['spillway_end'], alpha=0.15, color='red', 
                label=f"Spillway ({solution['spillway_end'] - solution['spillway_start']:.1f}m)")
-    
-    # Pre-jump region (supercritical flow after spillway)
-    plt.axvspan(solution['spillway_end'], adjusted_jump_start, alpha=0.2, color='cyan', 
-               label=f"Pre-Jump (Supercritical)")
-    
-    # Hydraulic jump region
-    plt.axvspan(adjusted_jump_start, jump_data['jump_end'], alpha=0.3, color='orange', 
+    plt.axvspan(jump_data['jump_start'], jump_data['jump_end'], alpha=0.3, color='orange', 
                label=f"Hydraulic Jump ({jump_data['jump_length']:.1f}m)")
-    
-    # Mark end of hydraulic jump with vertical dashed line
-    plt.axvline(x=jump_data['jump_end'], color='purple', linestyle='--', linewidth=3, alpha=0.8,
-               label='Jump End / Tailwater Meeting')
     
     # Reference lines
     plt.axhline(y=scenario['tailwater_elevation'], color='green', linestyle='--', alpha=0.8, 
@@ -502,29 +427,18 @@ def create_comprehensive_visualization(solution, scenario):
                 xy=(jump_center, jump_elevation + 1), fontsize=11, ha='center',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.8))
     
-    # Set proper axis limits to ensure everything fits
-    plt.xlim(x_min - x_padding, x_max + x_padding)
-    plt.ylim(y_min - y_padding, y_max + y_padding)
-    
     plt.xlabel('Distance (m)', fontsize=14, fontweight='bold')
     plt.ylabel('Elevation (m)', fontsize=14, fontweight='bold')
     plt.title('FIXED Ogee Diversion Dam Profile: Accurate FVM Analysis\n' + 
              f'Q = {scenario["discharge"]} m³/s, Exact Jump Location = {jump_data["jump_start"]:.1f}m', 
              fontsize=16, fontweight='bold')
-    
-    # Move legend to upper left with better formatting
-    plt.legend(loc='upper left', fontsize=10, framealpha=0.9, 
-              bbox_to_anchor=(0.02, 0.98), ncol=2)
-    
+    plt.legend(loc='upper right', fontsize=12)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
     
     # Plot 2: Velocity and Froude Analysis
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 12))
-    
-    # Set consistent x-limits for both subplots
-    x_lim_min, x_lim_max = x_min - x_padding, x_max + x_padding
     
     # Velocity profile
     ax1.plot(x, velocities, 'r-', linewidth=3, label='Velocity (Fixed)')
@@ -535,11 +449,10 @@ def create_comprehensive_visualization(solution, scenario):
     ax1.plot(x[max_vel_idx], velocities[max_vel_idx], 'ro', markersize=10, 
             label=f'Max Velocity: {velocities[max_vel_idx]:.2f} m/s')
     
-    ax1.set_xlim(x_lim_min, x_lim_max)
     ax1.set_xlabel('Distance (m)', fontsize=12, fontweight='bold')
     ax1.set_ylabel('Velocity (m/s)', fontsize=12, fontweight='bold')
     ax1.set_title('Velocity Distribution (Fixed Calculations)', fontsize=14, fontweight='bold')
-    ax1.legend(loc='upper left', fontsize=10, framealpha=0.9)
+    ax1.legend(fontsize=11)
     ax1.grid(True, alpha=0.3)
     
     # Froude number analysis
@@ -560,11 +473,10 @@ def create_comprehensive_visualization(solution, scenario):
     ax2.plot(x[max_fr_idx], froude_numbers[max_fr_idx], 'mo', markersize=10, 
             label=f'Max Froude: {froude_numbers[max_fr_idx]:.2f}')
     
-    ax2.set_xlim(x_lim_min, x_lim_max)
     ax2.set_xlabel('Distance (m)', fontsize=12, fontweight='bold')
     ax2.set_ylabel('Froude Number', fontsize=12, fontweight='bold')
     ax2.set_title('Flow Regime Analysis (Fixed Calculations)', fontsize=14, fontweight='bold')
-    ax2.legend(loc='upper left', fontsize=10, framealpha=0.9)
+    ax2.legend(fontsize=11)
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -579,11 +491,10 @@ def create_comprehensive_visualization(solution, scenario):
     ax1.axvspan(jump_data['jump_start'], jump_data['jump_end'], alpha=0.2, color='orange', 
                label=f'Jump (ΔE = {jump_data["energy_loss"]:.2f}m)')
     
-    ax1.set_xlim(x_lim_min, x_lim_max)
     ax1.set_xlabel('Distance (m)', fontsize=12, fontweight='bold')
     ax1.set_ylabel('Specific Energy (m)', fontsize=12, fontweight='bold')
     ax1.set_title('Energy Distribution (Fixed Calculations)', fontsize=14, fontweight='bold')
-    ax1.legend(loc='upper left', fontsize=10, framealpha=0.9)
+    ax1.legend(fontsize=11)
     ax1.grid(True, alpha=0.3)
     
     # Pressure distribution
@@ -604,11 +515,10 @@ def create_comprehensive_visualization(solution, scenario):
     ax2.plot(x[min_press_idx], pressures[min_press_idx], 'ro', markersize=10, 
             label=f'Min Pressure: {pressures[min_press_idx]:.3f}m')
     
-    ax2.set_xlim(x_lim_min, x_lim_max)
     ax2.set_xlabel('Distance (m)', fontsize=12, fontweight='bold')
     ax2.set_ylabel('Pressure Head (m)', fontsize=12, fontweight='bold')
     ax2.set_title('Pressure Distribution (Fixed Calculations)', fontsize=14, fontweight='bold')
-    ax2.legend(loc='upper left', fontsize=10, framealpha=0.9)
+    ax2.legend(fontsize=11)
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -674,9 +584,9 @@ def print_fixed_analysis_summary(solution, scenario):
 
 def main():
     """Main analysis function with fixed calculations."""
-    print("🏗️  CORRECTED PHYSICS Ogee Diversion Dam FVM Analysis")
+    print("🏗️  FIXED Ogee Diversion Dam FVM Analysis")
     print("========================================")
-    print("🔧 Physics CORRECTED: Water surface now drops from upstream to crest!")
+    print("🔧 All numerical issues have been FIXED!")
     
     # Step 1: Set up dam scenario
     scenario = setup_dam_scenario()
@@ -696,7 +606,7 @@ def main():
     # Step 6: Print fixed analysis summary
     print_fixed_analysis_summary(solution, scenario)
     
-    print(f"\n🎉 CORRECTED PHYSICS Ogee Diversion Dam FVM Analysis completed!")
+    print(f"\n🎉 FIXED Ogee Diversion Dam FVM Analysis completed!")
     print("   ✅ All numerical issues resolved")
     print("   ✅ Realistic flow field calculations")
     print("   ✅ Accurate jump location and characteristics")
