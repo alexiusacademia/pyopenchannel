@@ -33,12 +33,19 @@ A comprehensive Python library for open channel flow analysis and design. PyOpen
 ## Installation
 
 ### From Source (Development)
+Clone the repository and install dependencies with 
+[uv](https://github.com/astral-sh/uv):
 
 ```bash
 git clone https://github.com/alexiusacademia/pyopenchannel.git
 cd pyopenchannel
-pip install -e .
+
+# Install all dependencies (including dev tools)
+uv sync --all-extras
 ```
+
+This will create a virtual environment and install the package in editable mode with 
+development dependencies.
 
 ### Requirements
 
@@ -283,15 +290,15 @@ Run the test suite:
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=pyopenchannel
+uv run pytest --cov=pyopenchannel
 
 # Run specific test categories
-pytest -m unit          # Unit tests only
-pytest -m integration   # Integration tests only
-pytest -m "not slow"    # Skip slow tests
+uv run pytest -m unit          # Unit tests only
+uv run pytest -m integration   # Integration tests only
+uv run pytest -m "not slow"    # Skip slow tests
 ```
 
 ## Examples Directory
@@ -304,8 +311,8 @@ The `examples/` directory contains comprehensive examples:
 Run examples:
 
 ```bash
-python examples/basic_calculations.py
-python examples/channel_design.py
+uv run python examples/basic_calculations.py
+uv run python examples/channel_design.py
 ```
 
 ## Applications
@@ -381,18 +388,16 @@ Contributions are welcome! Please see CONTRIBUTING.md for guidelines.
 ```bash
 git clone https://github.com/alexiusacademia/pyopenchannel.git
 cd pyopenchannel
-pip install -e ".[dev]"
+
+# Install all dependencies (including dev tools)
+uv sync --all-extras
 ```
 
 ### Running Tests
 
+To run the test suite:
 ```bash
-pytest
-```
-
-If using `uv`
-```bash
-uv run --with pytest pytest
+uv run pytest
 ```
 
 ### Code Style

@@ -12,15 +12,14 @@ Thank you for your interest in contributing to PyOpenChannel! This document prov
    cd pyopenchannel
    ```
 
-2. **Create a Virtual Environment**
+2. **Install dependencies (including development tools):**
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   uv sync --all-extras
    ```
 
-3. **Install Development Dependencies**
+3. **Run the test suite**
    ```bash
-   pip install -e ".[dev]"
+   uv run pytest
    ```
 
 4. **Install Pre-commit Hooks**
@@ -43,7 +42,7 @@ Thank you for your interest in contributing to PyOpenChannel! This document prov
 
 3. **Run Tests**
    ```bash
-   pytest
+   uv run pytest
    ```
 
 4. **Run Code Quality Checks**
