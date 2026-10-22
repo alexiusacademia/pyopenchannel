@@ -99,7 +99,7 @@ result = solver.solve_profile(
     x_start=0.0,
     x_end=1000.0,
     boundary_depth=3.0,
-    boundary_type=BoundaryType.UPSTREAM_DEPTH
+    boundary_type=BoundaryType.DOWNSTREAM_DEPTH
 )
 ```
 
@@ -363,6 +363,8 @@ class BoundaryType(Enum):
     NORMAL_DEPTH = "normal_depth"
     CONTROL_STRUCTURE = "control_structure"
 ```
+
+x increases in the flow direction. `UPSTREAM_DEPTH` gives the depth at `x_start` and computes downstream (supercritical flow); `DOWNSTREAM_DEPTH` gives the depth at `x_end` and computes upstream (subcritical flow, such as backwater). `NORMAL_DEPTH` and `CRITICAL_DEPTH` start at `x_start`. `CONTROL_STRUCTURE` is not supported yet.
 
 ### ProfileType
 
@@ -815,7 +817,7 @@ result = solver.solve_profile(
     x_start=0.0,
     x_end=1000.0,
     boundary_depth=3.0,
-    boundary_type=BoundaryType.UPSTREAM_DEPTH
+    boundary_type=BoundaryType.DOWNSTREAM_DEPTH
 )
 
 # Process results

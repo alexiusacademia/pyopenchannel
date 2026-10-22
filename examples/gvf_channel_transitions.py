@@ -51,16 +51,18 @@ def analyze_transition(name, upstream_channel, downstream_channel, discharge,
         print(f"     • Critical depth: {upstream_critical:.3f} m")
         print(f"     • Slope type: {'Mild' if upstream_normal > upstream_critical else 'Steep'}")
         
-        # Solve upstream profile
+        # Solve upstream profile. The transition depth is above critical, so the
+        # approach flow is subcritical and controlled from downstream: the
+        # transition sits at x = 0 and the profile is computed upstream.
         upstream_result = solver.solve_profile(
             channel=upstream_channel,
             discharge=discharge,
             slope=upstream_slope,
             manning_n=manning_n,
-            x_start=0.0,
-            x_end=500.0,  # 500m upstream
+            x_start=-500.0,  # 500m upstream of the transition
+            x_end=0.0,       # transition (downstream control)
             boundary_depth=transition_depth,
-            boundary_type=BoundaryType.UPSTREAM_DEPTH
+            boundary_type=BoundaryType.DOWNSTREAM_DEPTH
         )
         
         upstream_profile = classifier.classify_profile(
@@ -98,18 +100,30 @@ def analyze_transition(name, upstream_channel, downstream_channel, discharge,
         print(f"     • Critical depth: {downstream_critical:.3f} m")
         print(f"     • Slope type: {'Mild' if downstream_normal > downstream_critical else 'Steep'}")
         
-        # For downstream, use a reasonable boundary depth
-        downstream_boundary = min(downstream_normal * 1.1, transition_depth * 0.9)
+        if downstream_normal < downstream_critical:
+            # Steep reach: supercritical flow is controlled from upstream. The
+            # flow passes through critical depth at the transition, so start
+            # just below critical and compute downstream toward normal depth.
+            downstream_boundary = min(transition_depth, 0.98 * downstream_critical)
+            downstream_type = BoundaryType.UPSTREAM_DEPTH
+            print(f"     • Computed downstream from {downstream_boundary:.3f} m at the transition (just below critical)")
+        else:
+            # Mild reach: subcritical flow is controlled from further downstream,
+            # so a depth set at the transition cannot be carried downstream.
+            # With no downstream control given, the reach runs at normal depth.
+            downstream_boundary = downstream_normal
+            downstream_type = BoundaryType.NORMAL_DEPTH
+            print(f"     • Subcritical reach with no downstream control: assumed at normal depth")
         
         downstream_result = solver.solve_profile(
             channel=downstream_channel,
             discharge=discharge,
             slope=downstream_slope,
             manning_n=manning_n,
-            x_start=0.0,
+            x_start=0.0,  # transition
             x_end=300.0,  # 300m downstream
             boundary_depth=downstream_boundary,
-            boundary_type=BoundaryType.UPSTREAM_DEPTH
+            boundary_type=downstream_type
         )
         
         downstream_profile = classifier.classify_profile(
@@ -142,6 +156,9 @@ def analyze_transition(name, upstream_channel, downstream_channel, discharge,
     print(f"     • Upstream energy: {upstream_energy:.3f} m")
     print(f"     • Downstream energy: {downstream_energy:.3f} m")
     print(f"     • Energy loss: {energy_loss:.3f} m")
+    if energy_loss < 0:
+        print(f"     • Negative loss: uniform flow downstream needs more energy than the assumed")
+        print(f"       transition depth provides, so the downstream reach would drown the transition")
     
     # Flow regime change
     upstream_froude = upstream_result.profile_points[0].froude_number

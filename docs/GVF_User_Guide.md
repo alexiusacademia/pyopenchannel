@@ -78,8 +78,8 @@ result = solver.solve_profile(
     manning_n=manning_n,
     x_start=0.0,
     x_end=1000.0,
-    boundary_depth=3.0,
-    boundary_type=BoundaryType.UPSTREAM_DEPTH
+    boundary_depth=3.0,     # backwater above normal depth at the downstream end
+    boundary_type=BoundaryType.DOWNSTREAM_DEPTH
 )
 
 print(f"Profile computed with {len(result.profile_points)} points")
@@ -122,11 +122,15 @@ Where:
 
 ### Boundary Conditions
 
-- **UPSTREAM_DEPTH**: Specify depth at upstream end
-- **DOWNSTREAM_DEPTH**: Specify depth at downstream end
-- **CRITICAL_DEPTH**: Use critical depth as boundary
-- **NORMAL_DEPTH**: Use normal depth as boundary
-- **CONTROL_STRUCTURE**: Specify control structure effects
+x increases in the flow direction: `x_start` is the upstream end and `x_end` the downstream end.
+
+- **UPSTREAM_DEPTH**: depth given at `x_start`; the profile is computed downstream. Use it for supercritical flow (S2, S3, M3 profiles), which is controlled from upstream.
+- **DOWNSTREAM_DEPTH**: depth given at `x_end`; the profile is computed upstream. Use it for subcritical flow (M1, M2, S1 profiles), such as backwater behind a dam, weir or bridge.
+- **CRITICAL_DEPTH**: critical depth at `x_start`
+- **NORMAL_DEPTH**: normal depth at `x_start` (uniform flow)
+- **CONTROL_STRUCTURE**: not supported yet; the solver returns an unsuccessful result
+
+Subcritical flow is controlled from downstream and supercritical flow from upstream, so always start the profile at its control. Computing a subcritical profile downstream from a depth (or the reverse) makes the depth run away from normal depth instead of approaching it.
 
 ---
 
@@ -168,8 +172,8 @@ result = solver.solve_profile(
     manning_n=0.025,         # Roughness coefficient
     x_start=0.0,             # Starting position
     x_end=2000.0,            # Ending position
-    boundary_depth=4.0,      # Boundary depth
-    boundary_type=BoundaryType.UPSTREAM_DEPTH,
+    boundary_depth=4.0,      # Depth at the control (downstream end)
+    boundary_type=BoundaryType.DOWNSTREAM_DEPTH,
     initial_step=10.0        # Initial step size (optional)
 )
 ```
@@ -392,17 +396,6 @@ if result.validation_results:
     for validation in result.validation_results:
         print(f"Validation: {validation['method']}")
         print(f"Error: {validation['error']:.2e}")
-```
-
-### Custom Boundary Conditions
-
-```python
-# Use control structure boundary
-result = solver.solve_profile(
-    # ... other parameters ...
-    boundary_depth=critical_depth * 1.1,
-    boundary_type=BoundaryType.CONTROL_STRUCTURE
-)
 ```
 
 ---

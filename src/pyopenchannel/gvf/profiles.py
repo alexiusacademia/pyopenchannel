@@ -106,6 +106,16 @@ class ProfileCharacteristics:
     asymptotic_behavior: str
     engineering_significance: str
 
+    @property
+    def min_depth(self) -> float:
+        """Smallest depth in the profile."""
+        return self.depth_range[0]
+
+    @property
+    def max_depth(self) -> float:
+        """Largest depth in the profile."""
+        return self.depth_range[1]
+
 
 class ProfileClassifier:
     """
@@ -680,13 +690,14 @@ class ProfileAnalyzer:
     
     def compare_profiles(
         self,
-        profiles: List[WaterSurfaceProfile]
+        profiles: List[Any]
     ) -> Dict[str, Any]:
         """
         Compare multiple water surface profiles.
         
         Args:
-            profiles: List of profiles to compare
+            profiles: WaterSurfaceProfile objects or the
+                ProfileCharacteristics returned by ProfileClassifier
             
         Returns:
             Comparison analysis
@@ -694,18 +705,21 @@ class ProfileAnalyzer:
         if not profiles:
             return {"error": "No profiles provided"}
         
+        characteristics = [getattr(p, 'characteristics', p) for p in profiles]
+        
         # Extract profile types
-        profile_types = [p.profile_type.value for p in profiles]
+        profile_types = [c.profile_type.value for c in characteristics]
         
         # Find common characteristics
-        slope_types = [p.characteristics.slope_type.value for p in profiles]
-        flow_regimes = [p.characteristics.flow_regime.value for p in profiles]
+        slope_types = [c.slope_type.value for c in characteristics]
+        flow_regimes = [c.flow_regime.value for c in characteristics]
         
         # Compute statistics
-        lengths = [p.characteristics.length for p in profiles]
-        max_depths = [p.characteristics.depth_range[1] for p in profiles]
+        lengths = [c.length for c in characteristics]
+        max_depths = [c.depth_range[1] for c in characteristics]
         
         return {
+            'total_profiles': len(profiles),
             'profile_count': len(profiles),
             'profile_types': profile_types,
             'unique_types': list(set(profile_types)),

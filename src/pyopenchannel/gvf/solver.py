@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from ..geometry import ChannelGeometry
-from ..hydraulics import ManningEquation, CriticalDepth
+from ..hydraulics import ManningEquation, CriticalDepth, NormalDepth
 from ..numerical import (
     AdaptiveIntegrator, 
     IntegrationResult, 
@@ -53,7 +53,8 @@ from ..validators import (
     validate_positive,
     validate_discharge,
     validate_manning_n,
-    validate_slope
+    validate_slope,
+    validate_depth
 )
 
 
@@ -431,6 +432,12 @@ class GVFSolver:
         Returns:
             GVFResult with computed water surface profile
         """
+        # Bad inputs are caller errors: raise instead of returning a failed result.
+        validate_discharge(discharge)
+        validate_manning_n(manning_n)
+        if boundary_type in (BoundaryType.UPSTREAM_DEPTH, BoundaryType.DOWNSTREAM_DEPTH):
+            validate_depth(boundary_depth)
+
         try:
             # Create GVF equation
             gvf_eq = GVFEquation(channel, discharge, slope, manning_n)
@@ -444,6 +451,10 @@ class GVFSolver:
                 x_final = x_start
             elif boundary_type == BoundaryType.CRITICAL_DEPTH:
                 x0, y0 = x_start, gvf_eq.critical_depth
+                x_final = x_end
+            elif boundary_type == BoundaryType.NORMAL_DEPTH:
+                # Uniform flow: the profile stays at normal depth.
+                x0, y0 = x_start, NormalDepth.calculate(channel, discharge, slope, manning_n)
                 x_final = x_end
             else:
                 raise ValueError(f"Unsupported boundary type: {boundary_type}")

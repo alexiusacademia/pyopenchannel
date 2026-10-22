@@ -54,17 +54,19 @@ def analyze_backwater_effect():
     print(f"📊 Backwater Ratio: {downstream_depth/normal_depth:.2f} (downstream/normal)")
     print(f"🔍 Analysis: Downstream depth > Normal depth → BACKWATER EFFECT")
     
-    # Analyze with GVF solver
+    # Analyze with GVF solver. Subcritical flow is controlled from downstream,
+    # so the control sits at x = 0 and the profile is computed upstream to
+    # x = -2000 m (x increases in the flow direction).
     solver = poc.GVFSolver()
     result = solver.solve_profile(
         channel=channel,
         discharge=discharge,
         slope=slope,
         manning_n=manning_n,
-        x_start=0.0,
-        x_end=2000.0,
+        x_start=-2000.0,
+        x_end=0.0,
         boundary_depth=downstream_depth,
-        boundary_type=poc.BoundaryType.UPSTREAM_DEPTH
+        boundary_type=poc.BoundaryType.DOWNSTREAM_DEPTH
     )
     
     if result.success:
@@ -72,22 +74,22 @@ def analyze_backwater_effect():
         print(f"📏 Profile Length: {result.length:.0f} m")
         print(f"📊 Profile Points: {len(result.profile_points)}")
         
-        # Analyze first and last points
+        # Points run from the downstream control (x=0) upstream
         first_point = result.profile_points[0]
         last_point = result.profile_points[-1]
         
         print(f"\n📍 PROFILE CHARACTERISTICS:")
-        print(f"   Downstream (x=0): {first_point.depth:.3f} m, Fr={first_point.froude_number:.2f}")
-        print(f"   Upstream (x={last_point.x:.0f}): {last_point.depth:.3f} m, Fr={last_point.froude_number:.2f}")
+        print(f"   Downstream control ({abs(first_point.x):.0f} m upstream): {first_point.depth:.3f} m, Fr={first_point.froude_number:.2f}")
+        print(f"   Upstream end ({abs(last_point.x):.0f} m upstream): {last_point.depth:.3f} m, Fr={last_point.froude_number:.2f}")
         print(f"   Depth Change: {last_point.depth - first_point.depth:.3f} m")
         print(f"   Flow Regime: {'Subcritical' if first_point.froude_number < 1 else 'Supercritical'} throughout")
         
         # Show depth progression
-        print(f"\n📈 DEPTH PROGRESSION (every 400m):")
+        print(f"\n📈 DEPTH PROGRESSION (going upstream from the control):")
         for i, point in enumerate(result.profile_points):
             if i % 20 == 0 or i == len(result.profile_points) - 1:  # Show every 20th point
                 approach_to_normal = abs(point.depth - normal_depth) / normal_depth * 100
-                print(f"   x={point.x:6.0f}m: depth={point.depth:.3f}m, "
+                print(f"   {abs(point.x):6.0f} m upstream: depth={point.depth:.3f}m, "
                       f"Fr={point.froude_number:.2f}, "
                       f"deviation from normal: {approach_to_normal:.1f}%")
         
@@ -172,10 +174,10 @@ def compare_different_backwater_scenarios():
             discharge=discharge,
             slope=slope,
             manning_n=manning_n,
-            x_start=0.0,
-            x_end=3000.0,
+            x_start=-3000.0,  # 3 km upstream of the control
+            x_end=0.0,        # downstream control
             boundary_depth=downstream_depth,
-            boundary_type=poc.BoundaryType.UPSTREAM_DEPTH
+            boundary_type=poc.BoundaryType.DOWNSTREAM_DEPTH
         )
         
         if result.success:

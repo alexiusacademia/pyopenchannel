@@ -83,10 +83,10 @@ def main():
     solver = GVFSolver()
     
     # Define boundary condition - dam creates backwater
-    upstream_depth = 1.2  # m - depth at dam (above normal depth)
+    dam_depth = 1.2  # m - depth at dam (above normal depth)
     
     print(f"\n🔍 GVF Analysis Setup:")
-    print(f"   • Boundary condition: Upstream depth = {upstream_depth:.1f} m")
+    print(f"   • Boundary condition: Depth at dam (downstream control) = {dam_depth:.1f} m")
     print(f"   • Analysis type: Backwater curve (M1 profile)")
     print(f"   • Integration direction: Upstream from dam")
     
@@ -97,10 +97,10 @@ def main():
             discharge=discharge,
             slope=slope,
             manning_n=manning_n,
-            x_start=0.0,      # Start at dam
-            x_end=2000.0,     # Analyze 2km upstream
-            boundary_depth=upstream_depth,
-            boundary_type=BoundaryType.UPSTREAM_DEPTH,
+            x_start=-2000.0,  # 2 km upstream of the dam
+            x_end=0.0,        # Dam (x increases in the flow direction)
+            boundary_depth=dam_depth,
+            boundary_type=BoundaryType.DOWNSTREAM_DEPTH,
             initial_step=10.0 # 10m initial step
         )
         
@@ -109,8 +109,8 @@ def main():
         print(f"   • Total length: {result.length:.1f} m")
         print(f"   • Computation status: {result.message}")
         
-        # Extract profile data
-        distances = [p.x for p in result.profile_points]
+        # Extract profile data (points run from the dam upstream)
+        distances = [abs(p.x) for p in result.profile_points]  # distance upstream of the dam
         depths = [p.depth for p in result.profile_points]
         velocities = [p.velocity for p in result.profile_points]
         froude_numbers = [p.froude_number for p in result.profile_points]
@@ -185,19 +185,21 @@ def main():
         return
     
     # =================================================================
-    # EXAMPLE 2: M2 PROFILE (CHANNEL ENTRANCE)
+    # EXAMPLE 2: M2 PROFILE (FREE OVERFALL DRAWDOWN)
     # =================================================================
     print("\n" + "="*70)
-    print("         EXAMPLE 2: M2 PROFILE (CHANNEL ENTRANCE)")
+    print("       EXAMPLE 2: M2 PROFILE (FREE OVERFALL DRAWDOWN)")
     print("="*70)
     
-    # Same channel, different boundary condition
-    entrance_depth = 2.0  # m - depth at channel entrance (between normal and critical)
+    # Same channel, now ending in a free overfall. Flow passes through
+    # critical depth at the brink; start just above yc (the GVF equation is
+    # singular at yc) and compute upstream toward normal depth.
+    brink_depth = 1.02 * critical_depth  # m - just above critical, below normal
     
     print(f"\n🔍 M2 Profile Analysis:")
-    print(f"   • Boundary condition: Entrance depth = {entrance_depth:.1f} m")
+    print(f"   • Boundary condition: Depth near the brink = {brink_depth:.3f} m")
     print(f"   • Depth relationship: yc < y < yn")
-    print(f"   • Expected profile: Drawdown curve (M2)")
+    print(f"   • Expected profile: Drawdown curve (M2), computed upstream from the brink")
     
     try:
         result_m2 = solver.solve_profile(
@@ -205,10 +207,10 @@ def main():
             discharge=discharge,
             slope=slope,
             manning_n=manning_n,
-            x_start=0.0,      # Start at entrance
-            x_end=1000.0,     # Analyze 1km downstream
-            boundary_depth=entrance_depth,
-            boundary_type=BoundaryType.UPSTREAM_DEPTH,
+            x_start=-1000.0,  # 1 km upstream of the brink
+            x_end=0.0,        # Brink (downstream control)
+            boundary_depth=brink_depth,
+            boundary_type=BoundaryType.DOWNSTREAM_DEPTH,
             initial_step=5.0  # 5m initial step
         )
         
@@ -217,10 +219,11 @@ def main():
         print(f"   • Length analyzed: {result_m2.length:.1f} m")
         
         depths_m2 = [p.depth for p in result_m2.profile_points]
-        distances_m2 = [p.x for p in result_m2.profile_points]
+        distances_m2 = [abs(p.x) for p in result_m2.profile_points]  # distance upstream of the brink
         
-        print(f"   • Depth change: {depths_m2[0]:.3f} → {depths_m2[-1]:.3f} m")
-        print(f"   • Profile type: {'Drawdown' if depths_m2[-1] < depths_m2[0] else 'Backwater'}")
+        print(f"   • Depth going upstream from the brink: {depths_m2[0]:.3f} → {depths_m2[-1]:.3f} m "
+              f"(yn = {normal_depth:.3f} m)")
+        print(f"   • Profile type: {'Drawdown toward the brink' if depths_m2[-1] > depths_m2[0] else 'Backwater'}")
         
     except Exception as e:
         print(f"\n❌ M2 Profile Failed: {e}")
@@ -251,8 +254,14 @@ def main():
     print(f"   • Critical depth: {critical_steep_depth:.3f} m")
     print(f"   • Slope type: {'Steep' if critical_steep_depth > normal_steep else 'Mild'}")
     
-    # S1 profile - backwater in steep channel
-    s1_boundary_depth = 1.5  # m - above critical depth
+    # S1 profile - backwater in steep channel (e.g. behind a gate or dam).
+    # The depth is above critical, so the flow is subcritical and controlled
+    # from downstream: compute upstream from the control. Going upstream the
+    # S1 depth falls quickly toward critical depth (the S1 curve begins at a
+    # hydraulic jump from the supercritical approach flow), so only a short
+    # reach is computed.
+    s1_boundary_depth = 1.5  # m - depth at the downstream control, above critical depth
+    s1_reach = 10.0          # m - stops short of where the curve reaches critical depth
     
     try:
         result_s1 = solver.solve_profile(
@@ -260,18 +269,20 @@ def main():
             discharge=steep_discharge,
             slope=steep_slope,
             manning_n=manning_n,
-            x_start=0.0,      # Start at boundary
-            x_end=500.0,      # Analyze 500m
+            x_start=-s1_reach,  # Upstream end of the reach
+            x_end=0.0,          # Downstream control
             boundary_depth=s1_boundary_depth,
-            boundary_type=BoundaryType.UPSTREAM_DEPTH,
+            boundary_type=BoundaryType.DOWNSTREAM_DEPTH,
             initial_step=2.0  # 2m initial step
         )
         
         print(f"\n✅ S1 Profile Solution Successful!")
+        print(f"   • Reach: {s1_reach:.0f} m upstream of the control (critical depth is reached just beyond)")
         depths_s1 = [p.depth for p in result_s1.profile_points]
         froude_s1 = [p.froude_number for p in result_s1.profile_points]
         
         print(f"   • Depth range: {min(depths_s1):.3f} - {max(depths_s1):.3f} m")
+        print(f"   • Depth going upstream from the control: {depths_s1[0]:.3f} → {depths_s1[-1]:.3f} m")
         print(f"   • Froude range: {min(froude_s1):.3f} - {max(froude_s1):.3f}")
         print(f"   • Flow regime: {'Mixed' if any(f < 1 for f in froude_s1) and any(f > 1 for f in froude_s1) else 'Subcritical' if all(f < 1 for f in froude_s1) else 'Supercritical'}")
         
@@ -287,13 +298,13 @@ def main():
     
     print(f"\n🎯 Key Findings:")
     print(f"   • M1 Profile: Effective for dam backwater analysis")
-    print(f"   • M2 Profile: Useful for channel entrance/transition design")
+    print(f"   • M2 Profile: Useful for drawdown upstream of free overfalls and drops")
     print(f"   • S1 Profile: Critical for steep channel hydraulic analysis")
     
     print(f"\n🔧 Engineering Applications:")
     print(f"   • Flood mapping: Use M1 profiles for reservoir backwater")
     print(f"   • Bridge design: Analyze backwater effects upstream")
-    print(f"   • Channel transitions: Use M2 profiles for entrance losses")
+    print(f"   • Channel drops: Use M2 profiles for drawdown upstream of the brink")
     print(f"   • Energy dissipation: S1 profiles for steep channel design")
     
     print(f"\n📚 Next Steps:")

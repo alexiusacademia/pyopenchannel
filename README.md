@@ -21,8 +21,19 @@ A comprehensive Python library for open channel flow analysis and design. PyOpen
 ### 📐 Flow Analysis
 - **Uniform flow**: Complete flow state analysis
 - **Critical flow**: Critical conditions and flow regime classification
-- **Gradually varied flow**: Water surface profile calculations (basic implementation)
 - **Flow classification**: Subcritical, critical, and supercritical flow identification
+
+### 🌊 Water Surface Profiles (Gradually Varied Flow)
+- **Profile solver**: Adaptive Runge-Kutta integration of the GVF equation
+- **Profile classification**: M, S, C, H and A profile types
+- **Dam backwater**: Backwater curve and its upstream extent
+- **Bridges**: Backwater through a bridge opening by the energy method, including choking
+- **Transitions and chutes**: Profiles at changes in section or slope
+
+### ⚡ Rapidly Varied Flow
+- **Hydraulic jumps**: Jump type, sequent depths and energy loss
+- **Weirs and gates**: Flow over weirs and under sluice gates
+- **Finite volume solver**: Shock-capturing solution of flows with jumps
 
 ### 🎯 Channel Design
 - **Optimal sections**: Hydraulically efficient channel design
@@ -42,8 +53,8 @@ pip install -e .
 
 ### Requirements
 
-- Python 3.12+
-- No external dependencies for core functionality
+- Python 3.9+
+- matplotlib (for plots)
 
 ## Quick Start
 
@@ -73,6 +84,38 @@ else:
 ```
 
 ## Examples
+
+### Backwater Profile
+
+Profiles are computed from their control. x increases in the flow direction. Subcritical flow, such as backwater behind a dam, is controlled from downstream, so give the depth at the downstream end (`DOWNSTREAM_DEPTH`) and the profile is computed upstream. Supercritical flow is controlled from upstream (`UPSTREAM_DEPTH`).
+
+```python
+import pyopenchannel as poc
+
+channel = poc.RectangularChannel(width=10.0)
+discharge, slope, manning_n = 30.0, 0.0008, 0.025
+
+# 4.0 m deep at the dam (x = 0); compute 5 km upstream
+result = poc.GVFSolver().solve_profile(
+    channel=channel,
+    discharge=discharge,
+    slope=slope,
+    manning_n=manning_n,
+    x_start=-5000.0,
+    x_end=0.0,
+    boundary_depth=4.0,
+    boundary_type=poc.BoundaryType.DOWNSTREAM_DEPTH
+)
+
+normal_depth = poc.NormalDepth.calculate(channel, discharge, slope, manning_n)
+upstream_end = result.profile_points[-1]
+print(f"Normal depth: {normal_depth:.3f} m")                                       # 2.061 m
+print(f"Depth 5 km upstream: {upstream_end.depth:.3f} m")                          # 2.097 m
+profile = poc.ProfileClassifier().classify_profile(result, channel, discharge, slope, manning_n)
+print(f"Profile type: {profile.profile_type.value}")                               # M1
+```
+
+For a dam or a bridge, `poc.DamAnalysis` and `poc.BridgeAnalysis` do this for you and report the backwater rise and its extent.
 
 ### Basic Flow Analysis
 
@@ -300,6 +343,13 @@ The `examples/` directory contains comprehensive examples:
 
 - `basic_calculations.py`: Fundamental hydraulic calculations
 - `channel_design.py`: Channel design and optimization examples
+- `gvf_simple_example.py`, `gvf_basic_usage.py`: Water surface profiles (M1, M2, S1)
+- `backwater_analysis_demo.py`, `gvf_dam_backwater_analysis.py`: Dam backwater
+- `gvf_applications_demo.py`, `gvf_channel_transitions.py`: Bridges, chutes and transitions
+- `rvf_hydraulic_jump_analysis.py`: Hydraulic jumps
+- `complete_gate_flow_analysis.py`, `rigorous_spillway_demo.py`: Gates and spillways
+
+See `examples/README_GVF_Examples.md` for a guide to the profile examples.
 
 Run examples:
 
@@ -426,8 +476,6 @@ For questions, issues, or contributions:
 
 Future enhancements planned:
 
-- [ ] Complete gradually varied flow implementation
-- [ ] Hydraulic jump calculations
 - [ ] Compound channel analysis
 - [ ] Sediment transport basics
 - [ ] Unsteady flow analysis

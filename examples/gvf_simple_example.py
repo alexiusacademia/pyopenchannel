@@ -73,10 +73,10 @@ def main():
             discharge=discharge,
             slope=slope,
             manning_n=manning_n,
-            x_start=0.0,
-            x_end=1500.0,  # 1.5 km upstream
+            x_start=-1500.0,  # 1.5 km upstream of the dam
+            x_end=0.0,        # dam (downstream control)
             boundary_depth=dam_depth,
-            boundary_type=BoundaryType.UPSTREAM_DEPTH
+            boundary_type=BoundaryType.DOWNSTREAM_DEPTH
         )
         
         # Classify profile
@@ -103,26 +103,29 @@ def main():
         print(f"  Velocity range: {min(velocities):.3f} - {max(velocities):.3f} m/s")
         print(f"  Backwater above normal: {max(depths) - normal_depth:.3f} m")
         
-        # Show profile points (first, middle, last)
+        # Show profile points (dam, middle, upstream end)
         print(f"\nKey Profile Points:")
-        print(f"  {'Distance (m)':<12} {'Depth (m)':<10} {'Velocity (m/s)':<12} {'Froude #':<10}")
+        print(f"  {'Upstream (m)':<12} {'Depth (m)':<10} {'Velocity (m/s)':<12} {'Froude #':<10}")
         print(f"  {'-'*50}")
         
         indices = [0, len(result.profile_points)//2, -1]
         for i in indices:
             p = result.profile_points[i]
-            print(f"  {p.x:<12.0f} {p.depth:<10.3f} {p.velocity:<12.3f} {p.froude_number:<10.3f}")
+            print(f"  {abs(p.x):<12.0f} {p.depth:<10.3f} {p.velocity:<12.3f} {p.froude_number:<10.3f}")
         
     except Exception as e:
         print(f"❌ Failed: {e}")
     
-    # Example 2: M2 Profile (Channel Entrance)
+    # Example 2: M2 Profile (Free Overfall Drawdown)
     print(f"\n" + "=" * 50)
-    print("EXAMPLE 2: M2 PROFILE (CHANNEL ENTRANCE)")
+    print("EXAMPLE 2: M2 PROFILE (FREE OVERFALL DRAWDOWN)")
     print("=" * 50)
     
-    entrance_depth = 2.2  # m - between critical and normal
-    print(f"Entrance depth: {entrance_depth:.1f} m (between yc and yn)")
+    # The channel ends in a free overfall, where the flow passes through
+    # critical depth. Start just above yc (the GVF equation is singular at yc)
+    # and compute upstream; the depth rises toward normal depth.
+    brink_depth = 1.02 * critical_depth  # m - between critical and normal
+    print(f"Depth near the brink: {brink_depth:.3f} m (just above yc, below yn)")
     
     try:
         result2 = solver.solve_profile(
@@ -130,10 +133,10 @@ def main():
             discharge=discharge,
             slope=slope,
             manning_n=manning_n,
-            x_start=0.0,
-            x_end=800.0,  # 800m downstream
-            boundary_depth=entrance_depth,
-            boundary_type=BoundaryType.UPSTREAM_DEPTH
+            x_start=-800.0,  # 800 m upstream of the brink
+            x_end=0.0,       # brink (downstream control)
+            boundary_depth=brink_depth,
+            boundary_type=BoundaryType.DOWNSTREAM_DEPTH
         )
         
         profile2 = classifier.classify_profile(
@@ -149,8 +152,9 @@ def main():
         print(f"Flow regime: {profile2.flow_regime.value}")
         
         depths2 = [p.depth for p in result2.profile_points]
-        print(f"Depth change: {depths2[0]:.3f} → {depths2[-1]:.3f} m")
-        print(f"Profile behavior: {'Drawdown' if depths2[-1] < depths2[0] else 'Backwater'}")
+        print(f"Depth going upstream from the brink: {depths2[0]:.3f} → {depths2[-1]:.3f} m "
+              f"({abs(result2.profile_points[-1].x):.0f} m upstream, yn = {normal_depth:.3f} m)")
+        print(f"Profile behavior: {'Drawdown toward the brink' if depths2[-1] > depths2[0] else 'Backwater'}")
         
     except Exception as e:
         print(f"❌ Failed: {e}")
@@ -177,10 +181,10 @@ def main():
             discharge=wide_discharge,
             slope=slope,
             manning_n=manning_n,
-            x_start=0.0,
-            x_end=1000.0,
+            x_start=-1000.0,  # 1 km upstream of the control
+            x_end=0.0,        # downstream control
             boundary_depth=wide_normal + 1.0,  # 1m above normal
-            boundary_type=BoundaryType.UPSTREAM_DEPTH
+            boundary_type=BoundaryType.DOWNSTREAM_DEPTH
         )
         
         profile3 = classifier.classify_profile(
@@ -209,7 +213,7 @@ def main():
     
     print(f"\n✅ GVF System Capabilities Demonstrated:")
     print(f"  • M1 profiles (dam backwater)")
-    print(f"  • M2 profiles (channel entrance)")
+    print(f"  • M2 profiles (drawdown to a free overfall)")
     print(f"  • Automatic profile classification")
     print(f"  • Multiple channel geometries")
     print(f"  • Professional hydraulic analysis")

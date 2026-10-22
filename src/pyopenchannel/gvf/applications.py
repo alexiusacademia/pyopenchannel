@@ -27,6 +27,67 @@ from ..geometry import ChannelGeometry, RectangularChannel, TrapezoidalChannel
 from ..hydraulics import NormalDepth
 from ..flow_analysis import CriticalFlow
 from ..exceptions import PyOpenChannelError
+from ..units import get_gravity
+
+# Bridge loss coefficients for the energy method (typical HEC-RAS values
+# for a bridge opening).
+BRIDGE_CONTRACTION_LOSS = 0.3
+BRIDGE_EXPANSION_LOSS = 0.5
+
+
+def solve_upstream_profile(
+    solver: GVFSolver,
+    channel: ChannelGeometry,
+    discharge: float,
+    slope: float,
+    manning_n: float,
+    control_depth: float,
+    length: float
+) -> GVFResult:
+    """
+    Compute a subcritical profile upstream from a control (dam, bridge, transition).
+
+    x increases downstream. The control sits at x = 0 and the profile runs
+    upstream to x = -length, so the first point is the control.
+    """
+    return solver.solve_profile(
+        channel=channel,
+        discharge=discharge,
+        slope=slope,
+        manning_n=manning_n,
+        x_start=-length,
+        x_end=0.0,
+        boundary_depth=control_depth,
+        boundary_type=BoundaryType.DOWNSTREAM_DEPTH
+    )
+
+
+def subcritical_depth_for_energy(
+    channel: ChannelGeometry,
+    discharge: float,
+    energy: float,
+    critical_depth: float
+) -> float:
+    """
+    Depth above critical whose specific energy equals `energy` (bisection).
+
+    `energy` must be at least the minimum specific energy of the section.
+    """
+    g = get_gravity()
+
+    def specific_energy(y: float) -> float:
+        return y + (discharge / channel.area(y)) ** 2 / (2 * g)
+
+    lo, hi = critical_depth, max(energy, critical_depth)
+    if specific_energy(lo) >= energy:
+        return critical_depth
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if specific_energy(mid) < energy:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
 
 
 class AnalysisType(Enum):
@@ -142,17 +203,13 @@ class DamAnalysis:
             safety_factor = self.safety_factors[self.design_criteria]["backwater"]
             design_dam_depth = dam_depth * safety_factor
             
-            # Solve GVF profile
-            gvf_result = self.solver.solve_profile(
-                channel=channel,
-                discharge=discharge,
-                slope=slope,
-                manning_n=manning_n,
-                x_start=0.0,
-                x_end=analysis_distance,
-                boundary_depth=design_dam_depth,
-                boundary_type=BoundaryType.UPSTREAM_DEPTH
+            # Backwater runs upstream from the dam (dam at x = 0)
+            gvf_result = solve_upstream_profile(
+                self.solver, channel, discharge, slope, manning_n,
+                design_dam_depth, analysis_distance
             )
+            if not gvf_result.success:
+                raise PyOpenChannelError(gvf_result.message)
             
             # Classify profile
             profile = self.classifier.classify_profile(
@@ -163,9 +220,9 @@ class DamAnalysis:
                 manning_n=manning_n
             )
             
-            # Extract analysis data
+            # Extract analysis data (distances measured upstream from the dam)
             depths = [p.depth for p in gvf_result.profile_points]
-            distances = [p.x for p in gvf_result.profile_points]
+            distances = [-p.x for p in gvf_result.profile_points]
             velocities = [p.velocity for p in gvf_result.profile_points]
             
             # Find backwater extent
@@ -321,9 +378,9 @@ class BridgeAnalysis:
         
         # Bridge design factors
         self.design_factors = {
-            DesignCriteria.CONSERVATIVE: {"clearance": 2.0, "contraction": 0.7, "scour": 2.5},
-            DesignCriteria.STANDARD: {"clearance": 1.5, "contraction": 0.8, "scour": 2.0},
-            DesignCriteria.OPTIMIZED: {"clearance": 1.2, "contraction": 0.9, "scour": 1.5}
+            DesignCriteria.CONSERVATIVE: {"clearance": 2.0, "scour": 2.5},
+            DesignCriteria.STANDARD: {"clearance": 1.5, "scour": 2.0},
+            DesignCriteria.OPTIMIZED: {"clearance": 1.2, "scour": 1.5}
         }
     
     def analyze_bridge_hydraulics(
@@ -355,21 +412,59 @@ class BridgeAnalysis:
             approach_critical = CriticalFlow(approach_channel).calculate_critical_depth(discharge)
             bridge_critical = CriticalFlow(bridge_opening).calculate_critical_depth(discharge)
             
-            # Bridge boundary condition - avoid choking
-            contraction_factor = self.design_factors[self.design_criteria]["contraction"]
-            bridge_depth = max(bridge_critical * 1.1, approach_normal * contraction_factor)
-            
-            # Analyze upstream backwater
-            gvf_result = self.solver.solve_profile(
-                channel=approach_channel,
-                discharge=discharge,
-                slope=slope,
-                manning_n=manning_n,
-                x_start=0.0,
-                x_end=analysis_distance,
-                boundary_depth=bridge_depth,
-                boundary_type=BoundaryType.UPSTREAM_DEPTH
+            # Energy method through the opening. Downstream of the bridge the
+            # flow is back at normal depth; walk upstream adding the expansion
+            # loss (bridge -> downstream) and the contraction loss
+            # (upstream -> bridge). If the opening cannot pass the flow
+            # subcritically it chokes and the bridge depth is critical.
+            g = get_gravity()
+            tail_velocity = discharge / approach_channel.area(approach_normal)
+            tail_energy = approach_normal + tail_velocity ** 2 / (2 * g)
+            bridge_min_energy = bridge_critical + (
+                discharge / bridge_opening.area(bridge_critical)) ** 2 / (2 * g)
+
+            bridge_energy = tail_energy
+            choked = False
+            for _ in range(50):
+                if bridge_energy <= bridge_min_energy:
+                    choked = True
+                    bridge_depth = bridge_critical
+                    bridge_energy = bridge_min_energy
+                    break
+                bridge_depth = subcritical_depth_for_energy(
+                    bridge_opening, discharge, bridge_energy, bridge_critical)
+                bridge_velocity = discharge / bridge_opening.area(bridge_depth)
+                expansion_loss = BRIDGE_EXPANSION_LOSS * max(
+                    bridge_velocity ** 2 - tail_velocity ** 2, 0.0) / (2 * g)
+                updated = tail_energy + expansion_loss
+                if abs(updated - bridge_energy) < 1e-9:
+                    break
+                bridge_energy = updated
+            bridge_velocity = discharge / bridge_opening.area(bridge_depth)
+
+            approach_critical_energy = approach_critical + (
+                discharge / approach_channel.area(approach_critical)) ** 2 / (2 * g)
+            upstream_energy = bridge_energy
+            upstream_depth = approach_normal
+            for _ in range(50):
+                upstream_depth = subcritical_depth_for_energy(
+                    approach_channel, discharge,
+                    max(upstream_energy, approach_critical_energy), approach_critical)
+                upstream_velocity = discharge / approach_channel.area(upstream_depth)
+                contraction_loss = BRIDGE_CONTRACTION_LOSS * max(
+                    bridge_velocity ** 2 - upstream_velocity ** 2, 0.0) / (2 * g)
+                updated = bridge_energy + contraction_loss
+                if abs(updated - upstream_energy) < 1e-9:
+                    break
+                upstream_energy = updated
+
+            # Backwater runs upstream from the bridge (bridge at x = 0)
+            gvf_result = solve_upstream_profile(
+                self.solver, approach_channel, discharge, slope, manning_n,
+                upstream_depth, analysis_distance
             )
+            if not gvf_result.success:
+                raise PyOpenChannelError(gvf_result.message)
             
             # Classify profile
             profile = self.classifier.classify_profile(
@@ -389,21 +484,25 @@ class BridgeAnalysis:
             clearance_factor = self.design_factors[self.design_criteria]["clearance"]
             scour_factor = self.design_factors[self.design_criteria]["scour"]
             
-            # Scour estimation (simplified)
-            scour_depth = self._estimate_scour_depth(bridge_depth, max_velocity, bridge_opening)
+            # Scour estimation (simplified), from the flow in the opening
+            scour_depth = self._estimate_scour_depth(bridge_depth, bridge_velocity, bridge_opening)
+            bridge_hydraulic_depth = bridge_opening.area(bridge_depth) / bridge_opening.top_width(bridge_depth)
             
             design_params = {
                 "approach_normal_depth": approach_normal,
                 "approach_critical_depth": approach_critical,
                 "bridge_critical_depth": bridge_critical,
                 "bridge_depth": bridge_depth,
+                "bridge_velocity": bridge_velocity,
+                "bridge_choked": choked,
+                "upstream_depth": upstream_depth,
                 "max_upstream_depth": max_depth,
                 "max_velocity": max_velocity,
                 "backwater_rise": max_depth - approach_normal,
                 "required_clearance": max_depth * clearance_factor,
                 "estimated_scour_depth": scour_depth * scour_factor,
                 "contraction_ratio": self._calculate_contraction_ratio(approach_channel, bridge_opening),
-                "froude_number_bridge": velocities[0] / math.sqrt(9.81 * bridge_depth)
+                "froude_number_bridge": bridge_velocity / math.sqrt(g * bridge_hydraulic_depth)
             }
             
             # Generate analysis outputs
@@ -441,7 +540,7 @@ class BridgeAnalysis:
             pier_width = 1.0  # Default pier width
         
         # Simplified Froehlich equation
-        froude = velocity / math.sqrt(9.81 * depth)
+        froude = velocity / math.sqrt(get_gravity() * depth)
         scour_depth = 2.27 * pier_width * (froude ** 0.43) * (depth / pier_width) ** 0.65
         
         return max(scour_depth, 0.5)  # Minimum 0.5m scour
@@ -785,17 +884,13 @@ class ChannelTransition:
                 upstream_normal, downstream_normal, upstream_critical, downstream_critical
             )
             
-            # Analyze upstream effects
-            upstream_result = self.solver.solve_profile(
-                channel=upstream_channel,
-                discharge=discharge,
-                slope=upstream_slope,
-                manning_n=manning_n,
-                x_start=0.0,
-                x_end=500.0,
-                boundary_depth=transition_depth,
-                boundary_type=BoundaryType.UPSTREAM_DEPTH
+            # Upstream effects run upstream from the transition (transition at x = 0)
+            upstream_result = solve_upstream_profile(
+                self.solver, upstream_channel, discharge, upstream_slope, manning_n,
+                transition_depth, 500.0
             )
+            if not upstream_result.success:
+                raise PyOpenChannelError(upstream_result.message)
             
             upstream_profile = self.classifier.classify_profile(
                 gvf_result=upstream_result,
@@ -810,8 +905,9 @@ class ChannelTransition:
             upstream_velocities = [p.velocity for p in upstream_result.profile_points]
             
             # Energy analysis
-            upstream_energy = upstream_depths[0] + (upstream_velocities[0] ** 2) / (2 * 9.81)
-            downstream_energy = downstream_normal + (discharge / downstream_channel.area(downstream_normal)) ** 2 / (2 * 9.81)
+            g = get_gravity()
+            upstream_energy = upstream_depths[0] + (upstream_velocities[0] ** 2) / (2 * g)
+            downstream_energy = downstream_normal + (discharge / downstream_channel.area(downstream_normal)) ** 2 / (2 * g)
             energy_loss = upstream_energy - downstream_energy
             
             design_params = {

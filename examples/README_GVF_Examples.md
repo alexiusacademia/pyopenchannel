@@ -202,8 +202,8 @@ result = solver.solve_profile(
     manning_n=manning_n,
     x_start=0.0,
     x_end=1000.0,
-    boundary_depth=3.0,
-    boundary_type=BoundaryType.UPSTREAM_DEPTH
+    boundary_depth=3.0,     # backwater depth at the downstream end
+    boundary_type=BoundaryType.DOWNSTREAM_DEPTH
 )
 
 # Classify the profile
