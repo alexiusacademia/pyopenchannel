@@ -31,6 +31,10 @@ A comprehensive Python library for open channel flow analysis and design. PyOpen
 - **Dam backwater**: Backwater curve and its upstream extent
 - **Bridges**: Backwater through a bridge opening by the energy method, including choking
 - **Transitions and chutes**: Profiles at changes in section or slope
+- **Profiles with a hydraulic jump**: Supercritical and subcritical curves joined at the jump, which is found by momentum (or reported as drowned or swept out)
+
+### 📈 Plots
+- **SVG charts with no plotting library**: Water surface profiles (with jumps and critical depth), cross-sections, specific energy diagrams and rating curves, via `pyopenchannel.plot`
 
 ### ⚡ Rapidly Varied Flow
 - **Hydraulic jumps**: Jump type, sequent depths and energy loss

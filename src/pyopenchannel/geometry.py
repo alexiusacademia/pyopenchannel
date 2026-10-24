@@ -60,6 +60,26 @@ class ChannelGeometry(ABC):
         
         return area / perimeter
     
+    def first_moment(self, depth: float) -> float:
+        """
+        First moment of the flow area about the water surface, A * y_bar,
+        where y_bar is the depth of the area's centroid below the surface.
+        Used in the momentum function M = A y_bar + Q^2 / (g A).
+        
+        General sections integrate (depth - eta) * T(eta) from the bed to
+        the surface (Simpson's rule); simple sections override it exactly.
+        """
+        depth = validate_depth(depth)
+        intervals = 400
+        h = depth / intervals
+        total = 0.0
+        for i in range(intervals + 1):
+            eta = i * h
+            weight = 1 if i in (0, intervals) else (4 if i % 2 else 2)
+            width = self.top_width(eta) if eta > 0 else self.top_width(min(h * 1e-6, depth))
+            total += weight * (depth - eta) * width
+        return total * h / 3
+    
     def hydraulic_depth(self, depth: float) -> float:
         """Calculate hydraulic depth (A/T) for given depth."""
         depth = validate_depth(depth)
@@ -98,6 +118,11 @@ class RectangularChannel(ChannelGeometry):
         validate_depth(depth)  # Validate but don't use - top width is constant
         return self.width
     
+    def first_moment(self, depth: float) -> float:
+        """A * y_bar = b y^2 / 2."""
+        depth = validate_depth(depth)
+        return self.width * depth**2 / 2
+
     def __repr__(self) -> str:
         return f"RectangularChannel(width={self.width})"
 
@@ -131,6 +156,11 @@ class TrapezoidalChannel(ChannelGeometry):
         depth = validate_depth(depth)
         return self.bottom_width + 2 * self.side_slope * depth
     
+    def first_moment(self, depth: float) -> float:
+        """A * y_bar = b y^2 / 2 + z y^3 / 3."""
+        depth = validate_depth(depth)
+        return self.bottom_width * depth**2 / 2 + self.side_slope * depth**3 / 3
+
     def __repr__(self) -> str:
         return f"TrapezoidalChannel(bottom_width={self.bottom_width}, side_slope={self.side_slope})"
 
@@ -162,6 +192,11 @@ class TriangularChannel(ChannelGeometry):
         depth = validate_depth(depth)
         return 2 * self.side_slope * depth
     
+    def first_moment(self, depth: float) -> float:
+        """A * y_bar = z y^3 / 3."""
+        depth = validate_depth(depth)
+        return self.side_slope * depth**3 / 3
+
     def __repr__(self) -> str:
         return f"TriangularChannel(side_slope={self.side_slope})"
 

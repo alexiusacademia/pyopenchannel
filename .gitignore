@@ -189,3 +189,4 @@ data/
 !examples/*.json
 site/
 .netlify/
+examples/output/

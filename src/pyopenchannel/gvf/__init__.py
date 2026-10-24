@@ -41,6 +41,12 @@ from .solver import (
     FlowRegime,
 )
 
+from .composite import (
+    CompositeProfile,
+    JumpLocation,
+    solve_profile_with_jump,
+)
+
 from .profiles import (
     ProfileType,
     ProfileClassifier,
@@ -62,6 +68,9 @@ from .applications import (
 )
 
 __all__ = [
+    "CompositeProfile",
+    "JumpLocation",
+    "solve_profile_with_jump",
     # Core GVF solver
     "GVFSolver",
     "GVFEquation", 

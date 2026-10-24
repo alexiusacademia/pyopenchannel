@@ -68,6 +68,7 @@ nav:
   - Channels and uniform flow: uniform-flow.md
   - Water surface profiles: GVF_User_Guide.md
   - Weirs, gates and jumps: structures.md
+  - Plots and jumps: plotting.md
   - Examples: examples.md
   - API reference: GVF_API_Reference.md
   - Changelog: https://github.com/alexiusacademia/pyopenchannel/releases

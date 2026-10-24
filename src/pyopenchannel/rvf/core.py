@@ -860,23 +860,9 @@ class RVFSolver:
             raise ConvergenceError("Sequent depth calculation did not converge")
     
     def _momentum_function(self, channel: ChannelGeometry, discharge: float, depth: float) -> float:
-        """Calculate momentum function M = yc*A + Q²/(g*A)"""
+        """Momentum function M = A y_bar + Q^2 / (g A)."""
         area = channel.area(depth)
-        centroid = self._calculate_centroidal_depth(channel, depth)
-        return centroid * area + discharge**2 / (self.gravity * area)
-    
-    def _calculate_centroidal_depth(self, channel: ChannelGeometry, depth: float) -> float:
-        """Calculate centroidal depth for different channel geometries."""
-        if isinstance(channel, RectangularChannel):
-            return depth / 2.0
-        elif isinstance(channel, TrapezoidalChannel):
-            # For trapezoidal channel: yc = (b*y² + m*y³) / (2*(b*y + m*y²))
-            b = channel.bottom_width
-            m = channel.side_slope
-            return (b * depth**2 + m * depth**3) / (2 * (b * depth + m * depth**2))
-        else:
-            # General approximation for other geometries
-            return depth / 2.0
+        return channel.first_moment(depth) + discharge**2 / (self.gravity * area)
     
     def _classify_jump_type(self, upstream_froude: float) -> JumpType:
         """Classify hydraulic jump type based on upstream Froude number."""

@@ -13,7 +13,7 @@ This library provides tools for:
 - Gradually varied flow analysis
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __author__ = "Alexius Academia"
 __email__ = "alexius.sayco.academia@gmail.com"
 
@@ -79,6 +79,9 @@ from .units import (
 )
 
 from .gvf import (
+    CompositeProfile,
+    JumpLocation,
+    solve_profile_with_jump,
     GVFSolver,
     GVFEquation,
     GVFResult,
@@ -140,7 +143,13 @@ from .spillway_utils import (
     create_wes_standard_spillway,
 )
 
+from . import plot
+
 __all__ = [
+    "plot",
+    "CompositeProfile",
+    "JumpLocation",
+    "solve_profile_with_jump",
     # Geometry classes
     "RectangularChannel",
     "TrapezoidalChannel", 

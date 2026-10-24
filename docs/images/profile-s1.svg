@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="460" viewBox="0 0 860 460" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<rect width="860" height="460" fill="#ffffff"/>
+<text x="72" y="34" font-size="18" font-weight="600" fill="#1f2937">Steep channel: S1 curve up to critical depth</text>
+<line x1="72.0" y1="112" x2="72.0" y2="404" stroke="#e5e7eb" stroke-width="1"/>
+<text x="72.0" y="422" font-size="12" fill="#6b7280" text-anchor="middle">-12</text>
+<line x1="199.3" y1="112" x2="199.3" y2="404" stroke="#e5e7eb" stroke-width="1"/>
+<text x="199.3" y="422" font-size="12" fill="#6b7280" text-anchor="middle">-10</text>
+<line x1="326.7" y1="112" x2="326.7" y2="404" stroke="#e5e7eb" stroke-width="1"/>
+<text x="326.7" y="422" font-size="12" fill="#6b7280" text-anchor="middle">-8</text>
+<line x1="454.0" y1="112" x2="454.0" y2="404" stroke="#e5e7eb" stroke-width="1"/>
+<text x="454.0" y="422" font-size="12" fill="#6b7280" text-anchor="middle">-6</text>
+<line x1="581.3" y1="112" x2="581.3" y2="404" stroke="#e5e7eb" stroke-width="1"/>
+<text x="581.3" y="422" font-size="12" fill="#6b7280" text-anchor="middle">-4</text>
+<line x1="708.7" y1="112" x2="708.7" y2="404" stroke="#e5e7eb" stroke-width="1"/>
+<text x="708.7" y="422" font-size="12" fill="#6b7280" text-anchor="middle">-2</text>
+<line x1="836.0" y1="112" x2="836.0" y2="404" stroke="#e5e7eb" stroke-width="1"/>
+<text x="836.0" y="422" font-size="12" fill="#6b7280" text-anchor="middle">0</text>
+<line x1="72" y1="404.0" x2="836" y2="404.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="408.0" font-size="12" fill="#6b7280" text-anchor="end">-0.5</text>
+<line x1="72" y1="345.6" x2="836" y2="345.6" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="349.6" font-size="12" fill="#6b7280" text-anchor="end">0.0</text>
+<line x1="72" y1="287.2" x2="836" y2="287.2" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="291.2" font-size="12" fill="#6b7280" text-anchor="end">0.5</text>
+<line x1="72" y1="228.8" x2="836" y2="228.8" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="232.8" font-size="12" fill="#6b7280" text-anchor="end">1.0</text>
+<line x1="72" y1="170.4" x2="836" y2="170.4" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="174.4" font-size="12" fill="#6b7280" text-anchor="end">1.5</text>
+<line x1="72" y1="112.0" x2="836" y2="112.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="116.0" font-size="12" fill="#6b7280" text-anchor="end">2.0</text>
+<rect x="72" y="112" width="764" height="292" fill="none" stroke="#9ca3af" stroke-width="1"/>
+<text x="454.0" y="446" font-size="13" fill="#1f2937" text-anchor="middle">Distance (m), flow left to right</text>
+<text x="18" y="258.0" font-size="13" fill="#1f2937" text-anchor="middle" transform="rotate(-90 18 258.0)">Elevation (m)</text>
+<clipPath id="plot-area"><rect x="72" y="112" width="764" height="292"/></clipPath>
+<g clip-path="url(#plot-area)">
+<polygon points="157.6,320.7 836.0,345.6 836.0,389.4 157.6,389.4" fill="#e7e5e4" fill-opacity="1.0" stroke="none"/>
+<polygon points="157.6,199.0 158.6,197.0 158.7,196.9 158.7,196.9 158.7,196.9 158.7,196.9 159.7,196.4 160.7,196.0 160.8,196.0 160.8,196.0 160.8,196.0 161.8,195.6 161.9,195.6 161.9,195.6 164.8,194.8 165.8,194.6 165.9,194.5 175.8,192.7 176.7,192.5 186.6,191.2 199.3,189.8 212.1,188.6 263.0,185.1 313.9,182.6 326.7,182.1 339.4,181.6 390.3,179.7 441.3,178.2 454.0,177.8 466.7,177.5 517.7,176.2 568.6,175.0 581.3,174.7 594.1,174.5 645.0,173.5 695.9,172.6 708.7,172.4 721.4,172.1 772.3,171.3 823.3,170.6 836.0,170.4 836.0,345.6 823.3,345.1 772.3,343.3 721.4,341.4 708.7,340.9 695.9,340.5 645.0,338.6 594.1,336.7 581.3,336.3 568.6,335.8 517.7,333.9 466.7,332.1 454.0,331.6 441.3,331.1 390.3,329.2 339.4,327.4 326.7,326.9 313.9,326.4 263.0,324.6 212.1,322.7 199.3,322.2 186.6,321.8 176.7,321.4 175.8,321.4 165.9,321.0 165.8,321.0 164.8,321.0 161.9,320.9 161.9,320.9 161.8,320.9 160.8,320.8 160.8,320.8 160.8,320.8 160.7,320.8 159.7,320.8 158.7,320.7 158.7,320.7 158.7,320.7 158.7,320.7 158.6,320.7 157.6,320.7" fill="#bfdbfe" fill-opacity="0.85" stroke="none"/>
+<polyline points="157.6,320.7 836.0,345.6" fill="none" stroke="#57534e" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="157.6,248.9 836.0,273.8" fill="none" stroke="#0d9488" stroke-width="1.5" stroke-dasharray="7 5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="157.6,199.0 836.0,223.8" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="3 4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="157.6,138.1 158.6,138.1 158.7,138.1 158.7,138.1 158.7,138.1 158.7,138.1 159.7,138.1 160.7,138.1 160.8,138.1 160.8,138.1 160.8,138.1 161.8,138.1 161.9,138.1 161.9,138.1 164.8,138.1 165.8,138.1 165.9,138.1 175.8,138.2 176.7,138.2 186.6,138.3 199.3,138.4 212.1,138.4 263.0,138.7 313.9,139.0 326.7,139.1 339.4,139.1 390.3,139.4 441.3,139.6 454.0,139.6 466.7,139.7 517.7,139.9 568.6,140.1 581.3,140.2 594.1,140.2 645.0,140.4 695.9,140.6 708.7,140.6 721.4,140.6 772.3,140.8 823.3,141.0 836.0,141.0" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="10 4 2 4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="157.6,199.0 158.6,197.0 158.7,196.9 158.7,196.9 158.7,196.9 158.7,196.9 159.7,196.4 160.7,196.0 160.8,196.0 160.8,196.0 160.8,196.0 161.8,195.6 161.9,195.6 161.9,195.6 164.8,194.8 165.8,194.6 165.9,194.5 175.8,192.7 176.7,192.5 186.6,191.2 199.3,189.8 212.1,188.6 263.0,185.1 313.9,182.6 326.7,182.1 339.4,181.6 390.3,179.7 441.3,178.2 454.0,177.8 466.7,177.5 517.7,176.2 568.6,175.0 581.3,174.7 594.1,174.5 645.0,173.5 695.9,172.6 708.7,172.4 721.4,172.1 772.3,171.3 823.3,170.6 836.0,170.4" fill="none" stroke="#2563eb" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="157.6" cy="199.0" r="4.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>
+</g>
+<rect x="72" y="63" width="18" height="11" fill="#bfdbfe" stroke="none"/>
+<text x="96" y="72" font-size="12" fill="#1f2937">Water</text>
+<line x1="153" y1="68" x2="171" y2="68" stroke="#57534e" stroke-width="2.0"/>
+<text x="177" y="72" font-size="12" fill="#1f2937">Bed</text>
+<line x1="220" y1="68" x2="238" y2="68" stroke="#0d9488" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="244" y="72" font-size="12" fill="#1f2937">Normal depth</text>
+<line x1="350" y1="68" x2="368" y2="68" stroke="#dc2626" stroke-width="2" stroke-dasharray="3 4"/>
+<text x="374" y="72" font-size="12" fill="#1f2937">Critical depth</text>
+<line x1="494" y1="68" x2="512" y2="68" stroke="#7c3aed" stroke-width="2" stroke-dasharray="10 4 2 4"/>
+<text x="518" y="72" font-size="12" fill="#1f2937">Energy line</text>
+<line x1="617" y1="68" x2="635" y2="68" stroke="#2563eb" stroke-width="2.4"/>
+<text x="641" y="72" font-size="12" fill="#1f2937">Water surface</text>
+<circle cx="81" cy="92" r="4.5" fill="#dc2626"/>
+<text x="96" y="96" font-size="12" fill="#1f2937">Reaches critical depth</text>
+</svg>

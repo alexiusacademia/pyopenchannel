@@ -421,7 +421,8 @@ class GVFSolver:
         x_end: float,
         boundary_depth: float,
         boundary_type: BoundaryType = BoundaryType.UPSTREAM_DEPTH,
-        initial_step: Optional[float] = None
+        initial_step: Optional[float] = None,
+        max_step: Optional[float] = None
     ) -> GVFResult:
         """
         Solve water surface profile using GVF equation.
@@ -436,6 +437,8 @@ class GVFSolver:
             boundary_depth: Boundary condition depth (m or ft)
             boundary_type: Type of boundary condition
             initial_step: Initial integration step size
+            max_step: Largest spacing between output points (default: the
+                reach length / 200, so every profile has at least 200 points)
             
         Returns:
             GVFResult with computed water surface profile
@@ -488,8 +491,10 @@ class GVFSolver:
                 self.event_detector.reset()
             
             # Integrate the GVF equation
+            if max_step is None:
+                max_step = abs(x_final - x0) / 200
             integration_result = self._integrate_to_critical(
-                gvf_eq, x0, y0, x_final, initial_step
+                gvf_eq, x0, y0, x_final, min(initial_step, max_step), max_step
             )
             ended_at_critical = gvf_eq.critical_reached is not None and not integration_result.success
             critical_location = None
@@ -557,7 +562,8 @@ class GVFSolver:
                     "discharge": discharge,
                     "slope": slope,
                     "manning_n": manning_n,
-                    "critical_depth": gvf_eq.critical_depth
+                    "critical_depth": gvf_eq.critical_depth,
+                    "normal_depth": self._normal_depth_or_none(channel, discharge, slope, manning_n)
                 },
                 computation_summary={
                     "integration_method": self.integration_method,
@@ -591,7 +597,66 @@ class GVFSolver:
                 message=f"GVF solver error: {e}"
             )
     
+    @staticmethod
+    def _normal_depth_or_none(channel, discharge, slope, manning_n) -> Optional[float]:
+        """Normal depth, or None on horizontal and adverse slopes (no uniform flow)."""
+        if slope <= 0:
+            return None
+        try:
+            return NormalDepth.calculate(channel, discharge, slope, manning_n)
+        except Exception:
+            return None
+
     def _integrate_to_critical(
+        self,
+        gvf_eq: GVFEquation,
+        x0: float,
+        y0: float,
+        x_final: float,
+        initial_step: float,
+        max_step: Optional[float] = None
+    ) -> IntegrationResult:
+        """
+        Integrate from (x0, y0) toward x_final in sections no longer than
+        max_step, so the output points are never further apart than that.
+        Stops early (unsuccessful, with gvf_eq.critical_reached set) where
+        the profile reaches critical depth.
+        """
+        length = abs(x_final - x0)
+        direction = 1.0 if x_final >= x0 else -1.0
+        sections = max(1, int(math.ceil(length / max_step - 1e-9))) if max_step else 1
+        
+        xs: List[float] = [x0]
+        ys: List[float] = [y0]
+        steps: List[float] = []
+        total_steps = 0
+        x, y, step = x0, y0, initial_step
+        result = None
+        for k in range(1, sections + 1):
+            target = x_final if k == sections else x0 + direction * length * k / sections
+            result = self._integrate_section(gvf_eq, x, y, target, step)
+            xs.extend(result.x_values[1:])
+            ys.extend(result.y_values[1:])
+            steps.extend(result.step_sizes)
+            total_steps += result.total_steps
+            if not result.success:
+                break
+            x, y = xs[-1], ys[-1]
+            if result.step_sizes:
+                step = abs(result.step_sizes[-1])
+        
+        return IntegrationResult(
+            x_values=xs,
+            y_values=ys,
+            step_sizes=steps,
+            error_estimates=result.error_estimates,
+            total_steps=total_steps,
+            success=result.success,
+            message=result.message,
+            events=result.events
+        )
+
+    def _integrate_section(
         self,
         gvf_eq: GVFEquation,
         x0: float,
@@ -600,17 +665,16 @@ class GVFSolver:
         initial_step: float
     ) -> IntegrationResult:
         """
-        Integrate from (x0, y0) toward x_final. If the profile runs into
-        critical depth, or a trial step overshoots to a non-positive depth,
-        restart from the last accepted point with smaller steps (so a
-        profile that reaches critical depth ends close to it). The returned
-        result is unsuccessful with gvf_eq.critical_reached set in that case.
+        Integrate one section. If the profile runs into critical depth, or a
+        trial step overshoots to a non-positive depth, restart from the last
+        accepted point with smaller steps (so a profile that reaches critical
+        depth ends close to it).
         """
         xs: List[float] = []
         ys: List[float] = []
         steps: List[float] = []
         total_steps = 0
-        x, y, step = x0, y0, initial_step
+        x, y, step = x0, y0, min(initial_step, abs(x_final - x0))
         min_step = 1e-6 * max(abs(x_final - x0), 1.0)
         result = None
 

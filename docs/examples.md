@@ -15,6 +15,7 @@ Some scripts draw plots with matplotlib and save them as PNG files.
 
 | Script | What it shows |
 |---|---|
+| [`plotting.py`](https://github.com/alexiusacademia/pyopenchannel/blob/main/examples/plotting.py) | A sluice gate, jump and weir; SVG profile, section and curves |
 | [`basic_calculations.py`](https://github.com/alexiusacademia/pyopenchannel/blob/main/examples/basic_calculations.py) | Normal depth, critical depth, flow state |
 | [`complete_rectangular_example.py`](https://github.com/alexiusacademia/pyopenchannel/blob/main/examples/complete_rectangular_example.py) | A full rectangular channel workflow |
 | [`channel_design.py`](https://github.com/alexiusacademia/pyopenchannel/blob/main/examples/channel_design.py) | Optimal and economic sections |

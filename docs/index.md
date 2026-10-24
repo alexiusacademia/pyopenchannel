@@ -30,6 +30,7 @@ print(f"Critical depth: {critical_depth:.3f} m")  # 0.990 m
 <a href="uniform-flow/"><strong>Channels and uniform flow</strong>Rectangular, trapezoidal, triangular, circular and parabolic sections. Manning's equation, normal and critical depth, specific energy, channel design.</a>
 <a href="GVF_User_Guide/"><strong>Water surface profiles</strong>Gradually varied flow: M, S, C, H and A profiles, dam backwater, bridges by the energy method, chutes and transitions.</a>
 <a href="structures/"><strong>Weirs, gates and jumps</strong>Sharp-crested, broad-crested and ogee weirs, sluice and radial gates in free or submerged flow, and hydraulic jumps.</a>
+<a href="plotting/"><strong>Plots and profiles with a jump</strong>Profiles, cross-sections, specific energy and rating curves as SVG, with no plotting library. Full reaches with the hydraulic jump in place.</a>
 <a href="examples/"><strong>Examples</strong>About forty ready-to-run scripts, from first calculations to spillway profiles.</a>
 </div>
 

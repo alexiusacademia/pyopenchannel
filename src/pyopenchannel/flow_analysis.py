@@ -465,11 +465,7 @@ class MomentumEquation:
         if area == 0:
             raise InvalidFlowConditionError("Cross-sectional area is zero")
         
-        # For most channel shapes, centroid depth ≈ depth/2
-        # This is exact for rectangular and trapezoidal channels
-        centroid_depth = depth / 2
-        
-        return discharge**2 / (gravity * area) + area * centroid_depth
+        return discharge**2 / (gravity * area) + channel.first_moment(depth)
     
     @staticmethod
     def conjugate_depths(
