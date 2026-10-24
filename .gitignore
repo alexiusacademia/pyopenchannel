@@ -187,3 +187,5 @@ data/
 *.xlsx
 *.json
 !examples/*.json
+site/
+.netlify/

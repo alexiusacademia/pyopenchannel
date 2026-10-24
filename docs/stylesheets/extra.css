@@ -1,0 +1,44 @@
+/* syncster.dev colours */
+:root {
+  --md-primary-fg-color: #0d9488;
+  --md-primary-fg-color--light: #14b8a6;
+  --md-primary-fg-color--dark: #0f7668;
+  --md-accent-fg-color: #0f7668;
+}
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #0f766e;
+  --md-accent-fg-color: #5eead4;
+  --md-typeset-a-color: #5eead4;
+}
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.md-typeset .hero-lead {
+  font-size: 1.15em;
+  line-height: 1.6;
+}
+.md-typeset .grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+  gap: 0.8rem;
+  margin: 1.2em 0;
+}
+.md-typeset .grid-cards > a {
+  display: block;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 12px;
+  color: inherit;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.md-typeset .grid-cards > a:hover {
+  border-color: var(--md-primary-fg-color);
+  transform: translateY(-2px);
+}
+.md-typeset .grid-cards strong {
+  display: block;
+  margin-bottom: 0.3em;
+  color: var(--md-primary-fg-color);
+}

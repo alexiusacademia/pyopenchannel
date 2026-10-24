@@ -44,8 +44,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/alexiusacademia/pyopenchannel"
-Documentation = "https://github.com/alexiusacademia/pyopenchannel#readme"
+Homepage = "https://pyopenchannel.syncster.dev"
+Documentation = "https://pyopenchannel.syncster.dev"
 Repository = "https://github.com/alexiusacademia/pyopenchannel"
 Issues = "https://github.com/alexiusacademia/pyopenchannel/issues"
 Changelog = "https://github.com/alexiusacademia/pyopenchannel/releases"

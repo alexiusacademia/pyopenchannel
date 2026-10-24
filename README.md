@@ -2,6 +2,8 @@
 
 A comprehensive Python library for open channel flow analysis and design. PyOpenChannel provides tools for hydraulic engineers, water resources professionals, and students to analyze and design open channel systems with ease and accuracy.
 
+**Documentation: [pyopenchannel.syncster.dev](https://pyopenchannel.syncster.dev)**
+
 ## Features
 
 ### 🏗️ Channel Geometries
@@ -443,6 +445,16 @@ pytest
 If using `uv`
 ```bash
 uv run --with pytest pytest
+```
+
+### Documentation Website
+
+The website at [pyopenchannel.syncster.dev](https://pyopenchannel.syncster.dev) is built from `docs/` with MkDocs Material (`mkdocs.yml`). Preview it locally, then build and deploy to Netlify:
+
+```bash
+uv run --no-project --with "mkdocs-material==9.6.*" mkdocs serve
+uv run --no-project --with "mkdocs-material==9.6.*" mkdocs build --strict
+npx netlify deploy --prod --dir site --site 72329ecc-ad05-48fb-a0b9-9ba7c8ca4ff1
 ```
 
 ### Code Style

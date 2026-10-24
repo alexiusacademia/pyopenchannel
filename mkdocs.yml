@@ -1,0 +1,73 @@
+site_name: PyOpenChannel
+site_url: https://pyopenchannel.syncster.dev/
+site_description: Open channel flow analysis and design in Python
+site_author: Alexius Academia
+repo_url: https://github.com/alexiusacademia/pyopenchannel
+repo_name: alexiusacademia/pyopenchannel
+edit_uri: edit/main/docs/
+copyright: PyOpenChannel by Alexius Academia · <a href="https://syncster.dev">syncster.dev</a> · MIT License
+
+theme:
+  name: material
+  font:
+    text: Bricolage Grotesque
+    code: IBM Plex Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.footer
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/alexiusacademia/pyopenchannel
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/pyopenchannel/
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.details
+
+exclude_docs: |
+  README.md
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Channels and uniform flow: uniform-flow.md
+  - Water surface profiles: GVF_User_Guide.md
+  - Weirs, gates and jumps: structures.md
+  - Examples: examples.md
+  - API reference: GVF_API_Reference.md
+  - Changelog: https://github.com/alexiusacademia/pyopenchannel/releases
