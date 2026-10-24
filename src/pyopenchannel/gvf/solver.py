@@ -58,6 +58,10 @@ from ..validators import (
 )
 
 
+class CriticalDepthReached(InvalidFlowConditionError):
+    """Raised when a profile reaches critical depth, where the GVF equation is singular."""
+
+
 class BoundaryType(Enum):
     """Types of boundary conditions for GVF analysis."""
     UPSTREAM_DEPTH = "upstream_depth"
@@ -135,6 +139,8 @@ class GVFResult:
     validation_results: List[Dict[str, Any]] = field(default_factory=list)
     success: bool = True
     message: str = "GVF computation completed successfully"
+    ended_at_critical_depth: bool = False
+    critical_depth_location: Optional[float] = None
     
     @property
     def length(self) -> float:
@@ -201,6 +207,8 @@ class GVFEquation:
         self.slope = validate_slope(slope)
         self.manning_n = validate_manning_n(manning_n)
         self.critical_tolerance = critical_tolerance
+        self.critical_reached: Optional[Tuple[float, float]] = None
+        self.overshot = False  # a trial step went to a non-positive depth
         
         # Pre-compute critical depth for efficiency
         self.critical_depth = CriticalDepth.calculate(channel, discharge)
@@ -225,6 +233,7 @@ class GVFEquation:
             InvalidFlowConditionError: If flow conditions are invalid
         """
         if depth <= 0:
+            self.overshot = True
             raise InvalidFlowConditionError(f"Depth must be positive, got {depth}")
         
         # Compute geometric properties
@@ -240,10 +249,13 @@ class GVFEquation:
         hydraulic_depth = area / top_width
         froude_number = velocity / math.sqrt(self.gravity * hydraulic_depth)
         
-        # Check for critical flow singularity
+        # dy/dx is singular at critical depth (Fr = 1): gradually varied flow
+        # ends there (hydraulic jump or control), so stop the profile.
         if abs(froude_number - 1.0) < self.critical_tolerance:
-            # Near critical flow - use special handling
-            return self._handle_critical_flow(depth, froude_number)
+            self.critical_reached = (x, depth)
+            raise CriticalDepthReached(
+                f"Critical depth reached at x = {x:.3f} (depth {depth:.4f})"
+            )
         
         # Compute friction slope using Manning's equation
         friction_slope = self._compute_friction_slope(
@@ -267,29 +279,25 @@ class GVFEquation:
         # Where C is the Manning factor (1.0 for SI, 1.486 for US)
         return (manning_n * velocity)**2 / (self.manning_factor**2 * hydraulic_radius**(4/3))
     
-    def _handle_critical_flow(self, depth: float, froude_number: float) -> float:
+    def froude_number(self, depth: float) -> float:
+        """Froude number at a depth."""
+        area = self.channel.area(depth)
+        velocity = self.discharge / area
+        hydraulic_depth = area / self.channel.top_width(depth)
+        return velocity / math.sqrt(self.gravity * hydraulic_depth)
+
+    def offset_from_critical(self, supercritical: bool) -> float:
         """
-        Handle critical flow conditions with special numerical treatment.
-        
-        Near critical flow (Fr ≈ 1), the denominator approaches zero,
-        requiring special handling to avoid numerical instability.
+        A depth just off critical depth, on the sub- or supercritical side,
+        far enough that the GVF equation is not singular there.
         """
-        # Use L'Hôpital's rule or asymptotic expansion
-        # For now, use a small perturbation method
-        epsilon = 1e-6
-        
-        if froude_number > 1.0:
-            # Slightly supercritical
-            perturbed_depth = depth * (1 - epsilon)
-        else:
-            # Slightly subcritical  
-            perturbed_depth = depth * (1 + epsilon)
-        
-        try:
-            return self.evaluate(0, perturbed_depth)  # x doesn't matter for uniform channels
-        except RecursionError:
-            # Fallback: assume horizontal water surface near critical
-            return 0.0
+        offset = 0.01
+        while offset < 0.5:
+            depth = self.critical_depth * (1 - offset if supercritical else 1 + offset)
+            if abs(self.froude_number(depth) - 1.0) >= 2 * self.critical_tolerance:
+                return depth
+            offset *= 1.5
+        return self.critical_depth * (1 - offset if supercritical else 1 + offset)
     
     def compute_flow_properties(self, depth: float) -> Dict[str, float]:
         """
@@ -450,8 +458,20 @@ class GVFSolver:
                 x0, y0 = x_end, boundary_depth
                 x_final = x_start
             elif boundary_type == BoundaryType.CRITICAL_DEPTH:
-                x0, y0 = x_start, gvf_eq.critical_depth
-                x_final = x_end
+                # Critical depth at a control. On a steep slope the flow below
+                # it is supercritical (S2), computed downstream from x_start.
+                # Otherwise the control is a brink at x_end and the subcritical
+                # profile (M2, H2, A2) is computed upstream from it. The start
+                # is moved just off critical depth, where dy/dx is singular.
+                steep = False
+                if slope > 0:
+                    steep = NormalDepth.calculate(channel, discharge, slope, manning_n) < gvf_eq.critical_depth
+                if steep:
+                    x0, y0 = x_start, gvf_eq.offset_from_critical(supercritical=True)
+                    x_final = x_end
+                else:
+                    x0, y0 = x_end, gvf_eq.offset_from_critical(supercritical=False)
+                    x_final = x_start
             elif boundary_type == BoundaryType.NORMAL_DEPTH:
                 # Uniform flow: the profile stays at normal depth.
                 x0, y0 = x_start, NormalDepth.calculate(channel, discharge, slope, manning_n)
@@ -468,14 +488,20 @@ class GVFSolver:
                 self.event_detector.reset()
             
             # Integrate the GVF equation
-            integration_result = self.integrator.integrate(
-                func=gvf_eq.evaluate,
-                x0=x0,
-                y0=y0,
-                x_end=x_final,
-                initial_step=initial_step,
-                max_steps=self.max_steps
+            integration_result = self._integrate_to_critical(
+                gvf_eq, x0, y0, x_final, initial_step
             )
+            ended_at_critical = gvf_eq.critical_reached is not None and not integration_result.success
+            critical_location = None
+            if ended_at_critical:
+                # The surface meets critical depth almost vertically within the
+                # last (very short) step, so end the profile at critical depth.
+                critical_location = integration_result.x_values[-1]
+                integration_result.y_values[-1] = gvf_eq.critical_depth
+                integration_result.success = True
+                integration_result.message = (
+                    f"Critical depth reached at x = {critical_location:.3f}"
+                )
             
             if not integration_result.success:
                 return GVFResult(
@@ -536,14 +562,22 @@ class GVFSolver:
                 computation_summary={
                     "integration_method": self.integration_method,
                     "total_steps": integration_result.total_steps,
-                    "profile_length": abs(x_final - x0),
+                    "profile_length": abs(profile_points[-1].x - profile_points[0].x),
+                    "ended_at_critical_depth": ended_at_critical,
                     "max_depth": max(point.depth for point in profile_points),
                     "min_depth": min(point.depth for point in profile_points)
                 },
                 events_detected=events_detected,
                 validation_results=validation_results,
                 success=True,
-                message="GVF profile computed successfully"
+                message=(
+                    f"Critical depth reached at x = {critical_location:.3f}; the profile ends "
+                    "there (gradually varied flow is not valid through critical depth: "
+                    "a hydraulic jump or a control is needed)"
+                    if ended_at_critical else "GVF profile computed successfully"
+                ),
+                ended_at_critical_depth=ended_at_critical,
+                critical_depth_location=critical_location
             )
             
         except Exception as e:
@@ -557,6 +591,67 @@ class GVFSolver:
                 message=f"GVF solver error: {e}"
             )
     
+    def _integrate_to_critical(
+        self,
+        gvf_eq: GVFEquation,
+        x0: float,
+        y0: float,
+        x_final: float,
+        initial_step: float
+    ) -> IntegrationResult:
+        """
+        Integrate from (x0, y0) toward x_final. If the profile runs into
+        critical depth, or a trial step overshoots to a non-positive depth,
+        restart from the last accepted point with smaller steps (so a
+        profile that reaches critical depth ends close to it). The returned
+        result is unsuccessful with gvf_eq.critical_reached set in that case.
+        """
+        xs: List[float] = []
+        ys: List[float] = []
+        steps: List[float] = []
+        total_steps = 0
+        x, y, step = x0, y0, initial_step
+        min_step = 1e-6 * max(abs(x_final - x0), 1.0)
+        result = None
+
+        for _ in range(30):
+            gvf_eq.critical_reached = None
+            gvf_eq.overshot = False
+            result = self.integrator.integrate(
+                func=gvf_eq.evaluate,
+                x0=x,
+                y0=y,
+                x_end=x_final,
+                initial_step=step,
+                max_steps=self.max_steps
+            )
+            skip = 1 if xs else 0
+            xs.extend(result.x_values[skip:])
+            ys.extend(result.y_values[skip:])
+            steps.extend(result.step_sizes)
+            total_steps += result.total_steps
+
+            if result.success or (gvf_eq.critical_reached is None and not gvf_eq.overshot):
+                break
+            # A step ran into critical depth, or a trial step overshot to a
+            # non-positive depth: retry from the last accepted point
+            last_step = abs(result.step_sizes[-1]) if result.step_sizes else step
+            x, y = xs[-1], ys[-1]
+            step = min(step, last_step) / 10
+            if step < min_step:
+                break
+
+        return IntegrationResult(
+            x_values=xs,
+            y_values=ys,
+            step_sizes=steps,
+            error_estimates=result.error_estimates,
+            total_steps=total_steps,
+            success=result.success,
+            message=result.message,
+            events=result.events
+        )
+
     def _create_profile_points(
         self, 
         integration_result: IntegrationResult, 

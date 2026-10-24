@@ -126,11 +126,13 @@ x increases in the flow direction: `x_start` is the upstream end and `x_end` the
 
 - **UPSTREAM_DEPTH**: depth given at `x_start`; the profile is computed downstream. Use it for supercritical flow (S2, S3, M3 profiles), which is controlled from upstream.
 - **DOWNSTREAM_DEPTH**: depth given at `x_end`; the profile is computed upstream. Use it for subcritical flow (M1, M2, S1 profiles), such as backwater behind a dam, weir or bridge.
-- **CRITICAL_DEPTH**: critical depth at `x_start`
+- **CRITICAL_DEPTH**: critical depth at a control. On a steep slope the control is at `x_start` and the supercritical S2 curve is computed downstream. Otherwise the control is a brink (free overfall) at `x_end` and the M2 drawdown is computed upstream.
 - **NORMAL_DEPTH**: normal depth at `x_start` (uniform flow)
 - **CONTROL_STRUCTURE**: not supported yet; the solver returns an unsuccessful result
 
-Subcritical flow is controlled from downstream and supercritical flow from upstream, so always start the profile at its control. Computing a subcritical profile downstream from a depth (or the reverse) makes the depth run away from normal depth instead of approaching it.
+Subcritical flow is controlled from downstream and supercritical flow from upstream, so always start the profile at its control.
+
+A profile stops if it reaches critical depth, where the GVF equation is singular and a hydraulic jump or a control must occur. The result then has `ended_at_critical_depth = True`, `critical_depth_location` set to the x where it stopped, and a message saying so. The last point is at critical depth, and `result.length` is shorter than the requested reach. Computing a subcritical profile downstream from a depth (or the reverse) makes the depth run away from normal depth instead of approaching it.
 
 ---
 

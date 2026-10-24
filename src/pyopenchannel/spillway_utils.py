@@ -337,12 +337,14 @@ class SpillwayHydraulics:
                 x_start=x_start,
                 x_end=x_end,
                 boundary_depth=critical_depth,
-                boundary_type=BoundaryType.UPSTREAM_DEPTH,
+                boundary_type=BoundaryType.CRITICAL_DEPTH,
                 initial_step=spillway_length / 100
             )
+            if not gvf_result.success:
+                raise RuntimeError(gvf_result.message)
             
             # Extract exit conditions
-            exit_depth = gvf_result.depths[-1]
+            exit_depth = gvf_result.profile_points[-1].depth
             exit_velocity = discharge / (spillway_geometry.spillway_width * exit_depth)
             exit_froude = exit_velocity / np.sqrt(gravity * exit_depth)
             exit_energy = exit_depth + exit_velocity**2 / (2 * gravity)

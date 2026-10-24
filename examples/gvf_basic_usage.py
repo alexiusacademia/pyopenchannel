@@ -258,10 +258,10 @@ def main():
     # The depth is above critical, so the flow is subcritical and controlled
     # from downstream: compute upstream from the control. Going upstream the
     # S1 depth falls quickly toward critical depth (the S1 curve begins at a
-    # hydraulic jump from the supercritical approach flow), so only a short
-    # reach is computed.
+    # hydraulic jump from the supercritical approach flow); the solver stops
+    # the profile where it reaches critical depth.
     s1_boundary_depth = 1.5  # m - depth at the downstream control, above critical depth
-    s1_reach = 10.0          # m - stops short of where the curve reaches critical depth
+    s1_reach = 200.0         # m - the solver stops where the curve reaches critical depth
     
     try:
         result_s1 = solver.solve_profile(
@@ -277,7 +277,11 @@ def main():
         )
         
         print(f"\n✅ S1 Profile Solution Successful!")
-        print(f"   • Reach: {s1_reach:.0f} m upstream of the control (critical depth is reached just beyond)")
+        if result_s1.ended_at_critical_depth:
+            print(f"   • Critical depth reached {abs(result_s1.critical_depth_location):.1f} m upstream of the control;")
+            print(f"     the S1 curve starts there (a hydraulic jump from the supercritical flow above)")
+        else:
+            print(f"   • Reach: {s1_reach:.0f} m upstream of the control")
         depths_s1 = [p.depth for p in result_s1.profile_points]
         froude_s1 = [p.froude_number for p in result_s1.profile_points]
         

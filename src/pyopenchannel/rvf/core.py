@@ -346,13 +346,12 @@ class RVFSolver:
         Returns:
             RVFResult with jump analysis
         """
+        # Determine and check the method (a bad method is a caller error)
+        analysis_method = method if method is not None else self.method
+        if analysis_method not in ["analytical", "fvm"]:
+            raise ValueError(f"Invalid method: {analysis_method}")
+        
         try:
-            # Determine method to use
-            analysis_method = method if method is not None else self.method
-            
-            # Validate method
-            if analysis_method not in ["analytical", "fvm"]:
-                raise ValueError(f"Invalid method: {analysis_method}")
             
             # Validate inputs
             discharge = validate_discharge(discharge)

@@ -234,6 +234,8 @@ class GVFResult:
     validation_results: List[Dict[str, Any]] = field(default_factory=list)
     success: bool = True
     message: str = "GVF computation completed successfully"
+    ended_at_critical_depth: bool = False       # profile stopped at critical depth
+    critical_depth_location: Optional[float] = None  # x where it stopped
 ```
 
 #### Properties
@@ -364,7 +366,9 @@ class BoundaryType(Enum):
     CONTROL_STRUCTURE = "control_structure"
 ```
 
-x increases in the flow direction. `UPSTREAM_DEPTH` gives the depth at `x_start` and computes downstream (supercritical flow); `DOWNSTREAM_DEPTH` gives the depth at `x_end` and computes upstream (subcritical flow, such as backwater). `NORMAL_DEPTH` and `CRITICAL_DEPTH` start at `x_start`. `CONTROL_STRUCTURE` is not supported yet.
+x increases in the flow direction. `UPSTREAM_DEPTH` gives the depth at `x_start` and computes downstream (supercritical flow); `DOWNSTREAM_DEPTH` gives the depth at `x_end` and computes upstream (subcritical flow, such as backwater). `NORMAL_DEPTH` starts at `x_start`. `CRITICAL_DEPTH` puts critical depth at the control: at `x_start` computing downstream on a steep slope (S2), otherwise at `x_end` computing upstream from a brink (M2). `CONTROL_STRUCTURE` is not supported yet.
+
+A profile that reaches critical depth stops there. `GVFResult.ended_at_critical_depth` is then `True` and `GVFResult.critical_depth_location` holds the x where it stopped.
 
 ### ProfileType
 

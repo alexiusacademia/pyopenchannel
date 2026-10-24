@@ -41,7 +41,7 @@ from ..validators import validate_discharge, validate_depth, validate_positive
 from ..exceptions import ConvergenceError, InvalidFlowConditionError
 from ..units import get_gravity
 from .core import RVFSolver, RVFResult, TransitionType
-from .gates import CavitationRisk
+from .gates import CavitationRisk, available_pressure_head
 
 
 class WeirType(Enum):
@@ -459,13 +459,12 @@ class WeirFlowSolver:
         Returns:
             WeirFlowResult with complete analysis
         """
+        # Determine and check the method (a bad method is a caller error)
+        analysis_method = method if method is not None else self.method
+        if analysis_method not in ["analytical", "fvm"]:
+            raise ValueError(f"Invalid method: {analysis_method}")
+        
         try:
-            # Determine method to use
-            analysis_method = method if method is not None else self.method
-            
-            # Validate method
-            if analysis_method not in ["analytical", "fvm"]:
-                raise ValueError(f"Invalid method: {analysis_method}")
             
             # Validate inputs
             approach_depth = validate_depth(approach_depth)
@@ -484,98 +483,6 @@ class WeirFlowSolver:
                     channel, weir, approach_depth, discharge, downstream_depth
                 )
             
-            # Calculate head over weir
-            head_over_weir = approach_depth - weir.weir_height
-            
-            if head_over_weir <= 0:
-                return self._create_failed_result(
-                    weir, "Approach depth is below weir crest - no flow over weir"
-                )
-            
-            # Calculate discharge if not provided
-            if discharge is None:
-                discharge = self._calculate_weir_discharge(
-                    channel, weir, approach_depth, head_over_weir, downstream_depth
-                )
-            
-            # Calculate approach conditions
-            approach_analysis = self._analyze_approach_conditions(
-                channel, discharge, approach_depth, weir
-            )
-            
-            # Determine flow condition and submergence effects
-            flow_condition, submergence_analysis = self._analyze_submergence_effects(
-                weir, head_over_weir, downstream_depth, discharge
-            )
-            
-            # Calculate discharge coefficients
-            coefficients = self._calculate_discharge_coefficients(
-                weir, head_over_weir, approach_analysis, submergence_analysis
-            )
-            
-            # Energy analysis
-            energy_analysis = self._calculate_energy_analysis(
-                channel, weir, discharge, approach_depth, head_over_weir, downstream_depth
-            )
-            
-            # Aeration and cavitation analysis
-            aeration_analysis = self._analyze_aeration_requirements(
-                weir, head_over_weir, discharge
-            )
-            cavitation_analysis = self._analyze_cavitation_risk(
-                weir, head_over_weir, approach_analysis["velocity"]
-            )
-            
-            # Downstream conditions analysis
-            downstream_analysis = self._analyze_downstream_conditions(
-                channel, weir, discharge, head_over_weir, downstream_depth
-            )
-            
-            # Calculate effective length
-            effective_length = self._calculate_effective_length(weir, head_over_weir)
-            
-            return WeirFlowResult(
-                weir_type=weir.weir_type,
-                weir_height=weir.weir_height,
-                effective_length=effective_length,
-                discharge=discharge,
-                head_over_weir=head_over_weir,
-                approach_depth=approach_depth,
-                approach_velocity=approach_analysis["velocity"],
-                downstream_depth=downstream_depth,
-                discharge_coefficient=coefficients["discharge_coefficient"],
-                velocity_coefficient=coefficients["velocity_coefficient"],
-                approach_velocity_factor=coefficients["approach_velocity_factor"],
-                submergence_factor=submergence_analysis["submergence_factor"],
-                approach_energy=energy_analysis["approach_energy"],
-                crest_energy=energy_analysis["crest_energy"],
-                downstream_energy=energy_analysis.get("downstream_energy"),
-                energy_dissipated=energy_analysis["energy_dissipated"],
-                energy_efficiency=energy_analysis["energy_efficiency"],
-                weir_condition=flow_condition,
-                froude_approach=approach_analysis["froude_number"],
-                froude_downstream=downstream_analysis.get("froude_number"),
-                modular_limit=submergence_analysis["modular_limit"],
-                submergence_ratio=submergence_analysis["submergence_ratio"],
-                aeration_requirement=aeration_analysis["requirement_level"],
-                cavitation_risk=cavitation_analysis["risk_level"],
-                cavitation_index=cavitation_analysis["cavitation_index"],
-                nappe_trajectory=downstream_analysis.get("nappe_trajectory"),
-                energy_dissipation_length=downstream_analysis["energy_dissipation_length"],
-                scour_potential=downstream_analysis["scour_potential"],
-                success=True,
-                message=f"Weir flow analysis complete. Condition: {flow_condition.value}",
-                properties={
-                    "weir_efficiency": coefficients["discharge_coefficient"],
-                    "approach_channel_adequate": approach_analysis["channel_adequate"],
-                    "aeration_details": aeration_analysis,
-                    "cavitation_details": cavitation_analysis
-                },
-                spillway_profile=self._generate_spillway_profile(weir) if weir.weir_type == WeirType.OGEE_SPILLWAY else None,
-                aeration_analysis=aeration_analysis,
-                approach_flow_analysis=approach_analysis
-            )
-            
         except Exception as e:
             return self._create_failed_result(weir, f"Weir flow analysis failed: {str(e)}")
     
@@ -587,11 +494,11 @@ class WeirFlowSolver:
         discharge: Optional[float] = None,
         downstream_depth: Optional[float] = None
     ) -> WeirFlowResult:
-        """Analyze weir flow using analytical methods (original implementation)."""
+        """Analyze weir flow with the standard weir equations."""
         import time
         start_time = time.time()
         
-        # Calculate head over weir
+        # Head over the crest
         head_over_weir = approach_depth - weir.weir_height
         
         if head_over_weir <= 0:
@@ -602,28 +509,79 @@ class WeirFlowSolver:
             result.computation_time = time.time() - start_time
             return result
         
-        # Calculate discharge if not provided
+        # Free-flow discharge and the coefficients behind it
+        free_flow = self._free_flow_discharge(channel, weir, approach_depth, head_over_weir)
+        
+        # Submergence by the tailwater
+        flow_condition, submergence_analysis = self._analyze_submergence_effects(
+            weir, head_over_weir, downstream_depth, free_flow["discharge"]
+        )
+        
+        # Discharge: the given one, or the free-flow discharge reduced by submergence
         if discharge is None:
-            discharge = self._calculate_weir_discharge(
-                channel, weir, approach_depth, head_over_weir
-            )
+            discharge = free_flow["discharge"] * submergence_analysis["submergence_factor"]
         
-        # Determine weir condition (free flow vs submerged)
-        weir_condition = self._classify_weir_condition(
-            weir, approach_depth, downstream_depth, head_over_weir
+        approach_analysis = self._analyze_approach_conditions(
+            channel, discharge, approach_depth, weir
+        )
+        coefficients = self._calculate_discharge_coefficients(free_flow)
+        effective_length = self._calculate_effective_length(weir, head_over_weir, channel)
+        energy_analysis = self._calculate_energy_analysis(
+            channel, weir, discharge, approach_depth, head_over_weir, downstream_depth,
+            effective_length
+        )
+        aeration_analysis = self._analyze_aeration_requirements(
+            weir, head_over_weir, discharge
+        )
+        cavitation_analysis = self._analyze_cavitation_risk(weir, head_over_weir)
+        downstream_analysis = self._analyze_downstream_conditions(
+            channel, weir, discharge, head_over_weir, downstream_depth
         )
         
-        # Calculate hydraulic parameters
-        result = self._calculate_weir_hydraulics(
-            channel, weir, approach_depth, discharge, head_over_weir, 
-            downstream_depth, weir_condition
+        return WeirFlowResult(
+            weir_type=weir.weir_type,
+            weir_height=weir.weir_height,
+            effective_length=effective_length,
+            discharge=discharge,
+            head_over_weir=head_over_weir,
+            approach_depth=approach_depth,
+            approach_velocity=approach_analysis["velocity"],
+            downstream_depth=downstream_depth,
+            discharge_coefficient=coefficients["discharge_coefficient"],
+            velocity_coefficient=coefficients["velocity_coefficient"],
+            approach_velocity_factor=coefficients["approach_velocity_factor"],
+            submergence_factor=submergence_analysis["submergence_factor"],
+            approach_energy=energy_analysis["approach_energy"],
+            crest_energy=energy_analysis["crest_energy"],
+            downstream_energy=energy_analysis.get("downstream_energy"),
+            energy_dissipated=energy_analysis["energy_dissipated"],
+            energy_efficiency=energy_analysis["energy_efficiency"],
+            weir_condition=flow_condition,
+            froude_approach=approach_analysis["froude_number"],
+            froude_downstream=downstream_analysis.get("froude_number"),
+            modular_limit=submergence_analysis["modular_limit"],
+            submergence_ratio=submergence_analysis["submergence_ratio"],
+            aeration_requirement=aeration_analysis["requirement_level"],
+            cavitation_risk=cavitation_analysis["risk_level"],
+            cavitation_index=cavitation_analysis["cavitation_index"],
+            nappe_trajectory=downstream_analysis.get("nappe_trajectory"),
+            energy_dissipation_length=downstream_analysis["energy_dissipation_length"],
+            scour_potential=downstream_analysis["scour_potential"],
+            success=True,
+            message=f"Weir flow analysis complete. Condition: {flow_condition.value}",
+            properties={
+                "weir_efficiency": coefficients["discharge_coefficient"],
+                "free_flow_discharge": free_flow["discharge"],
+                "approach_channel_adequate": approach_analysis["channel_adequate"],
+                "aeration_details": aeration_analysis,
+                "cavitation_details": cavitation_analysis
+            },
+            spillway_profile=self._generate_spillway_profile(weir) if weir.weir_type == WeirType.OGEE_SPILLWAY else None,
+            aeration_analysis=aeration_analysis,
+            approach_flow_analysis=approach_analysis,
+            method_used="analytical",
+            computation_time=time.time() - start_time
         )
-        
-        # Add method information
-        result.method_used = "analytical"
-        result.computation_time = time.time() - start_time
-        
-        return result
     
     def _analyze_weir_flow_fvm(
         self,
@@ -930,134 +888,108 @@ class WeirFlowSolver:
         weir: WeirGeometry,
         approach_depth: float,
         head_over_weir: float,
-        downstream_depth: Optional[float]
+        downstream_depth: Optional[float] = None
     ) -> float:
-        """Calculate discharge over weir using appropriate equations."""
-        
-        if weir.weir_type == WeirType.SHARP_CRESTED_RECTANGULAR:
-            return self._calculate_rectangular_weir_discharge(weir, head_over_weir, approach_depth)
-        elif weir.weir_type == WeirType.SHARP_CRESTED_TRIANGULAR:
-            return self._calculate_triangular_weir_discharge(weir, head_over_weir)
-        elif weir.weir_type == WeirType.SHARP_CRESTED_TRAPEZOIDAL:
-            return self._calculate_trapezoidal_weir_discharge(weir, head_over_weir)
-        elif weir.weir_type == WeirType.BROAD_CRESTED:
-            return self._calculate_broad_crested_weir_discharge(weir, head_over_weir, approach_depth)
-        elif weir.weir_type == WeirType.OGEE_SPILLWAY:
-            return self._calculate_ogee_spillway_discharge(weir, head_over_weir, approach_depth)
-        else:
-            # Default to rectangular weir equation
-            return self._calculate_rectangular_weir_discharge(weir, head_over_weir, approach_depth)
+        """Free-flow discharge over the weir (submergence is applied separately)."""
+        return self._free_flow_discharge(channel, weir, approach_depth, head_over_weir)["discharge"]
     
-    def _calculate_rectangular_weir_discharge(
-        self, weir: WeirGeometry, head: float, approach_depth: float
-    ) -> float:
-        """Calculate discharge for rectangular sharp-crested weir using Rehbock equation."""
+    def _free_flow_discharge(
+        self,
+        channel: ChannelGeometry,
+        weir: WeirGeometry,
+        approach_depth: float,
+        head: float
+    ) -> Dict[str, float]:
+        """
+        Free-flow discharge with the coefficients used.
         
-        # Rehbock equation with approach velocity correction
-        # Q = Cd * L * H^(3/2) * sqrt(2g)
+        Returns discharge, discharge_coefficient (Cd in the weir equation)
+        and approach_velocity_factor ((He/H)^1.5, 1.0 where the coefficient
+        already accounts for approach velocity).
+        """
+        root_2g = math.sqrt(2 * self.gravity)
+        weir_type = weir.weir_type
         
-        # Base discharge coefficient (Rehbock)
-        Cd = 0.602 + 0.083 * (head / weir.weir_height)
+        if weir_type == WeirType.SHARP_CRESTED_TRIANGULAR:
+            # V-notch: Q = Cd (8/15) sqrt(2g) tan(theta/2) H^(5/2)
+            theta = math.radians(weir.vertex_angle or 90.0)
+            cd = 0.58 + 0.05 * (head / (weir.weir_height + head))
+            discharge = cd * (8 / 15) * root_2g * math.tan(theta / 2) * head ** 2.5
+            return {"discharge": discharge, "discharge_coefficient": cd, "approach_velocity_factor": 1.0}
         
-        # Approach velocity correction
-        if approach_depth > 0:
-            approach_velocity_head = head * 0.1  # Approximate correction
-            effective_head = head + approach_velocity_head
-        else:
-            effective_head = head
+        if weir_type == WeirType.SHARP_CRESTED_TRAPEZOIDAL:
+            # Rectangular part plus one V-notch (the two side triangles
+            # together have tan(theta/2) = side slope z)
+            width = weir.weir_width or weir.crest_length or 1.0
+            side_slope = weir.side_slope if weir.side_slope is not None else 1.0
+            cd_rect = self._rehbock_coefficient(weir, head)
+            cd_tri = 0.58
+            discharge = ((2 / 3) * cd_rect * root_2g * width * head ** 1.5
+                         + (8 / 15) * cd_tri * root_2g * side_slope * head ** 2.5)
+            return {"discharge": discharge, "discharge_coefficient": cd_rect, "approach_velocity_factor": 1.0}
         
-        # Effective length (considering end contractions)
-        if weir.weir_width:
-            effective_length = weir.weir_width - 0.1 * head  # End contraction correction
-        else:
-            effective_length = weir.crest_length or 1.0
+        if weir_type == WeirType.BROAD_CRESTED:
+            # Q = Cd L sqrt(2g) He^(3/2); Cd = 0.385 is the ideal (critical flow) value
+            thickness = weir.crest_thickness or 0.5
+            ratio = head / thickness
+            if ratio < 0.1:
+                cd = 0.32
+            elif ratio > 2.0:
+                cd = 0.385
+            else:
+                cd = 0.32 + (0.385 - 0.32) * (ratio - 0.1) / 1.9
+            length = weir.crest_length or weir.weir_width or 1.0
+            discharge, factor = self._with_approach_velocity(
+                channel, approach_depth, head,
+                lambda he: cd * length * root_2g * he ** 1.5)
+            return {"discharge": discharge, "discharge_coefficient": cd, "approach_velocity_factor": factor}
         
-        discharge = Cd * effective_length * effective_head**(3/2) * math.sqrt(2 * self.gravity)
+        if weir_type == WeirType.OGEE_SPILLWAY:
+            # Q = (2/3) Cd sqrt(2g) L He^(3/2) with Cd = 0.738, i.e. C = 2.18 (SI)
+            # for a high ogee crest (P/Hd >= 1.33) running at its design head (USBR)
+            cd = 0.738
+            length = weir.crest_length or weir.weir_width or 1.0
+            discharge, factor = self._with_approach_velocity(
+                channel, approach_depth, head,
+                lambda he: (2 / 3) * cd * root_2g * length * he ** 1.5)
+            return {"discharge": discharge, "discharge_coefficient": cd, "approach_velocity_factor": factor}
         
-        return discharge
+        # Rectangular sharp-crested (and the default for other types):
+        # Rehbock, Q = (2/3) Cd sqrt(2g) Le H^(3/2); Cd includes approach velocity
+        cd = self._rehbock_coefficient(weir, head)
+        length = self._calculate_effective_length(weir, head, channel)
+        discharge = (2 / 3) * cd * root_2g * length * head ** 1.5
+        return {"discharge": discharge, "discharge_coefficient": cd, "approach_velocity_factor": 1.0}
     
-    def _calculate_triangular_weir_discharge(
-        self, weir: WeirGeometry, head: float
-    ) -> float:
-        """Calculate discharge for triangular sharp-crested weir."""
-        
-        # Standard triangular weir equation
-        # Q = Cd * (8/15) * sqrt(2g) * tan(θ/2) * H^(5/2)
-        
-        vertex_angle = weir.vertex_angle or 90.0  # Default to 90-degree V-notch
-        theta_rad = math.radians(vertex_angle)
-        
-        # Discharge coefficient for triangular weir
-        Cd = 0.58 + 0.05 * (head / (weir.weir_height + head))
-        
-        discharge = Cd * (8/15) * math.sqrt(2 * self.gravity) * math.tan(theta_rad/2) * head**(5/2)
-        
-        return discharge
+    @staticmethod
+    def _rehbock_coefficient(weir: WeirGeometry, head: float) -> float:
+        """Rehbock discharge coefficient, Cd = 0.602 + 0.083 H/P."""
+        if weir.weir_height <= 0:
+            return 0.611
+        return 0.602 + 0.083 * head / weir.weir_height
     
-    def _calculate_trapezoidal_weir_discharge(
-        self, weir: WeirGeometry, head: float
-    ) -> float:
-        """Calculate discharge for trapezoidal sharp-crested weir."""
-        
-        # Trapezoidal weir = rectangular + triangular components
-        
-        # Rectangular component
-        weir_width = weir.weir_width or weir.crest_length or 1.0
-        Cd_rect = 0.602 + 0.083 * (head / weir.weir_height)
-        Q_rect = Cd_rect * weir_width * head**(3/2) * math.sqrt(2 * self.gravity)
-        
-        # Triangular components (both sides)
-        side_slope = weir.side_slope or 1.0  # Default 1:1 side slopes
-        Cd_tri = 0.58
-        Q_tri = 2 * Cd_tri * (8/15) * math.sqrt(2 * self.gravity) * side_slope * head**(5/2)
-        
-        return Q_rect + Q_tri
-    
-    def _calculate_broad_crested_weir_discharge(
-        self, weir: WeirGeometry, head: float, approach_depth: float
-    ) -> float:
-        """Calculate discharge for broad-crested weir."""
-        
-        # Broad-crested weir equation
-        # Q = Cd * L * H * sqrt(2g * H)
-        
-        # Discharge coefficient depends on head/crest_thickness ratio
-        thickness = weir.crest_thickness or 0.5
-        head_thickness_ratio = head / thickness
-        
-        if head_thickness_ratio < 0.1:
-            Cd = 0.32  # Thick weir
-        elif head_thickness_ratio > 2.0:
-            Cd = 0.385  # Thin weir (approaching sharp-crested)
-        else:
-            # Interpolate
-            Cd = 0.32 + (0.385 - 0.32) * (head_thickness_ratio - 0.1) / 1.9
-        
-        effective_length = weir.crest_length or weir.weir_width or 1.0
-        
-        discharge = Cd * effective_length * head * math.sqrt(2 * self.gravity * head)
-        
-        return discharge
-    
-    def _calculate_ogee_spillway_discharge(
-        self, weir: WeirGeometry, head: float, approach_depth: float
-    ) -> float:
-        """Calculate discharge for ogee spillway."""
-        
-        # Standard ogee spillway equation
-        # Q = Cd * L * H^(3/2) * sqrt(2g)
-        
-        # Discharge coefficient for ogee spillway (typically higher than sharp-crested)
-        Cd = 0.75  # Standard value for well-designed ogee spillway
-        
-        # Approach velocity correction
-        approach_velocity_correction = 1 + 0.1 * (head / approach_depth)
-        
-        effective_length = weir.crest_length or weir.weir_width or 1.0
-        
-        discharge = Cd * effective_length * head**(3/2) * math.sqrt(2 * self.gravity) * approach_velocity_correction
-        
-        return discharge
+    def _with_approach_velocity(
+        self,
+        channel: ChannelGeometry,
+        approach_depth: float,
+        head: float,
+        flow
+    ) -> Tuple[float, float]:
+        """
+        Solve Q = flow(He) with the total head He = H + V^2/2g, V = Q / A_approach.
+        Returns the discharge and the factor (He/H)^1.5.
+        """
+        area = channel.area(approach_depth)
+        discharge = flow(head)
+        for _ in range(100):
+            total_head = head + (discharge / area) ** 2 / (2 * self.gravity)
+            updated = flow(total_head)
+            if abs(updated - discharge) <= 1e-12 * max(discharge, 1.0):
+                discharge = updated
+                break
+            discharge = updated
+        total_head = head + (discharge / area) ** 2 / (2 * self.gravity)
+        return discharge, (total_head / head) ** 1.5
     
     def _analyze_approach_conditions(
         self,
@@ -1094,46 +1026,46 @@ class WeirFlowSolver:
         downstream_depth: Optional[float],
         discharge: float
     ) -> Tuple[WeirCondition, Dict[str, Any]]:
-        """Analyze submergence effects and determine flow condition."""
+        """
+        Submergence by the tailwater.
         
-        if downstream_depth is None:
-            return WeirCondition.FREE_FLOW, {
-                "submergence_ratio": 0.0,
-                "submergence_factor": 1.0,
-                "modular_limit": 0.7  # Typical modular limit
-            }
+        S = H2/H1, both heads above the crest. Sharp-crested weirs follow
+        Villemonte, Qs/Qf = (1 - S^n)^0.385 (n = 1.5, or 2.5 for a V-notch),
+        which reduces the flow as soon as the tailwater rises above the
+        crest. Broad-crested weirs and ogee spillways are unaffected up to
+        their modular limit; above it the same form is applied to
+        (S - limit)/(1 - limit), an approximation.
+        """
+        sharp_crested = weir.weir_type in (
+            WeirType.SHARP_CRESTED_RECTANGULAR,
+            WeirType.SHARP_CRESTED_TRIANGULAR,
+            WeirType.SHARP_CRESTED_TRAPEZOIDAL
+        )
+        exponent = 2.5 if weir.weir_type == WeirType.SHARP_CRESTED_TRIANGULAR else 1.5
         
-        # Calculate submergence ratio
-        downstream_head = downstream_depth - weir.weir_height
-        
-        if downstream_head <= 0:
+        if downstream_depth is None or downstream_depth <= weir.weir_height:
             submergence_ratio = 0.0
         else:
-            submergence_ratio = downstream_head / head_over_weir
+            submergence_ratio = min((downstream_depth - weir.weir_height) / head_over_weir, 1.0)
         
-        # Determine modular limit based on weir type
-        if weir.weir_type in [WeirType.SHARP_CRESTED_RECTANGULAR, WeirType.SHARP_CRESTED_TRAPEZOIDAL]:
-            modular_limit = 0.7
-        elif weir.weir_type == WeirType.SHARP_CRESTED_TRIANGULAR:
-            modular_limit = 0.6
-        elif weir.weir_type == WeirType.BROAD_CRESTED:
-            modular_limit = 0.8
-        elif weir.weir_type == WeirType.OGEE_SPILLWAY:
-            modular_limit = 0.75
+        if sharp_crested:
+            # Submergence ratio at which the flow drops by 1%
+            modular_limit = (1 - 0.99 ** (1 / 0.385)) ** (1 / exponent)
+            submergence_factor = (1 - submergence_ratio ** exponent) ** 0.385
         else:
-            modular_limit = 0.7
+            modular_limit = {WeirType.BROAD_CRESTED: 0.8, WeirType.OGEE_SPILLWAY: 0.75}.get(weir.weir_type, 0.7)
+            if submergence_ratio <= modular_limit:
+                submergence_factor = 1.0
+            else:
+                excess = (submergence_ratio - modular_limit) / (1 - modular_limit)
+                submergence_factor = (1 - excess ** 1.5) ** 0.385
         
-        # Determine flow condition
-        if submergence_ratio < modular_limit:
+        if submergence_factor >= 0.99:
             flow_condition = WeirCondition.FREE_FLOW
-            submergence_factor = 1.0
-        elif submergence_ratio < 0.9:
+        elif submergence_factor >= 0.9:
             flow_condition = WeirCondition.TRANSITIONAL
-            # Villemonte equation for submergence factor
-            submergence_factor = (1 - (submergence_ratio / modular_limit)**1.5)**0.385
         else:
             flow_condition = WeirCondition.SUBMERGED
-            submergence_factor = (1 - (submergence_ratio / modular_limit)**1.5)**0.385
         
         return flow_condition, {
             "submergence_ratio": submergence_ratio,
@@ -1141,42 +1073,14 @@ class WeirFlowSolver:
             "modular_limit": modular_limit
         }
     
-    def _calculate_discharge_coefficients(
-        self,
-        weir: WeirGeometry,
-        head: float,
-        approach_analysis: Dict[str, Any],
-        submergence_analysis: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Calculate various discharge coefficients."""
-        
-        # Base discharge coefficient
-        if weir.weir_type == WeirType.SHARP_CRESTED_RECTANGULAR:
-            Cd_base = 0.602 + 0.083 * (head / weir.weir_height)
-        elif weir.weir_type == WeirType.SHARP_CRESTED_TRIANGULAR:
-            Cd_base = 0.58 + 0.05 * (head / (weir.weir_height + head))
-        elif weir.weir_type == WeirType.BROAD_CRESTED:
-            Cd_base = 0.35
-        elif weir.weir_type == WeirType.OGEE_SPILLWAY:
-            Cd_base = 0.75
-        else:
-            Cd_base = 0.6
-        
-        # Approach velocity factor
-        approach_velocity = approach_analysis["velocity"]
-        approach_velocity_factor = 1 + approach_velocity**2 / (2 * self.gravity * head)
-        
-        # Final discharge coefficient
-        discharge_coefficient = Cd_base * approach_velocity_factor * submergence_analysis["submergence_factor"]
-        
-        # Velocity coefficient
-        velocity_coefficient = discharge_coefficient / 0.6  # Normalized to theoretical
-        
+    def _calculate_discharge_coefficients(self, free_flow: Dict[str, float]) -> Dict[str, Any]:
+        """Coefficients of the weir equation used for the free-flow discharge."""
         return {
-            "discharge_coefficient": discharge_coefficient,
-            "velocity_coefficient": velocity_coefficient,
-            "approach_velocity_factor": approach_velocity_factor,
-            "base_coefficient": Cd_base
+            "discharge_coefficient": free_flow["discharge_coefficient"],
+            # Cv: approach velocity coefficient, (He/H)^1.5
+            "velocity_coefficient": free_flow["approach_velocity_factor"],
+            "approach_velocity_factor": free_flow["approach_velocity_factor"],
+            "base_coefficient": free_flow["discharge_coefficient"]
         }
     
     def _calculate_energy_analysis(
@@ -1186,33 +1090,28 @@ class WeirFlowSolver:
         discharge: float,
         approach_depth: float,
         head: float,
-        downstream_depth: Optional[float]
+        downstream_depth: Optional[float],
+        effective_length: Optional[float] = None
     ) -> Dict[str, Any]:
-        """Calculate energy analysis for weir flow."""
+        """Energy upstream, at the crest (critical flow) and downstream."""
+        g = self.gravity
         
-        # Approach energy
-        approach_area = channel.area(approach_depth)
-        approach_velocity = discharge / approach_area
-        approach_energy = approach_depth + approach_velocity**2 / (2 * self.gravity)
+        approach_velocity = discharge / channel.area(approach_depth)
+        approach_energy = approach_depth + approach_velocity ** 2 / (2 * g)
         
-        # Energy at weir crest (critical flow assumption)
-        critical_depth = (discharge**2 / (self.gravity * (weir.crest_length or 1.0)**2))**(1/3)
-        critical_velocity = discharge / (weir.crest_length or 1.0) / critical_depth
-        crest_energy = weir.weir_height + critical_depth + critical_velocity**2 / (2 * self.gravity)
+        # Critical flow over the crest
+        length = effective_length or weir.crest_length or weir.weir_width or 1.0
+        unit_discharge = discharge / length
+        critical_depth = (unit_discharge ** 2 / g) ** (1 / 3)
+        crest_energy = weir.weir_height + 1.5 * critical_depth
         
-        # Downstream energy
         if downstream_depth is not None:
-            downstream_area = channel.area(downstream_depth)
-            downstream_velocity = discharge / downstream_area
-            downstream_energy = downstream_depth + downstream_velocity**2 / (2 * self.gravity)
-        else:
-            downstream_energy = None
-        
-        # Energy dissipated
-        if downstream_energy is not None:
+            downstream_velocity = discharge / channel.area(downstream_depth)
+            downstream_energy = downstream_depth + downstream_velocity ** 2 / (2 * g)
             energy_dissipated = approach_energy - downstream_energy
             energy_efficiency = downstream_energy / approach_energy
         else:
+            downstream_energy = None
             energy_dissipated = approach_energy - crest_energy
             energy_efficiency = crest_energy / approach_energy
         
@@ -1233,7 +1132,7 @@ class WeirFlowSolver:
         """Analyze aeration requirements for weir flow."""
         
         # Aeration requirements based on head and discharge
-        unit_discharge = discharge / (weir.crest_length or 1.0)
+        unit_discharge = discharge / (weir.crest_length or weir.weir_width or 1.0)
         
         # Criteria for aeration requirements
         if head < 1.0:
@@ -1272,24 +1171,17 @@ class WeirFlowSolver:
     def _analyze_cavitation_risk(
         self,
         weir: WeirGeometry,
-        head: float,
-        approach_velocity: float
+        head: float
     ) -> Dict[str, Any]:
-        """Analyze cavitation risk for weir flow."""
+        """
+        Cavitation index at the toe of the overflow:
+        sigma = (atmospheric - vapour pressure head) / (V^2 / 2g), with the
+        velocity of water that has fallen the weir height plus the head.
+        """
+        velocity_head = weir.weir_height + head
+        pressure_head = available_pressure_head()
+        cavitation_index = pressure_head / velocity_head if velocity_head > 0 else 10.0
         
-        # Cavitation index calculation
-        # σ = (P_atm + ρgh - P_vapor) / (0.5 * ρ * V²)
-        
-        # Simplified cavitation index
-        velocity_head = approach_velocity**2 / (2 * self.gravity)
-        pressure_head = head  # Simplified
-        
-        if velocity_head > 0:
-            cavitation_index = pressure_head / velocity_head
-        else:
-            cavitation_index = 10.0  # Very high (safe)
-        
-        # Risk classification
         if cavitation_index > 0.5:
             risk_level = CavitationRisk.NEGLIGIBLE
         elif cavitation_index > 0.3:
@@ -1334,7 +1226,7 @@ class WeirFlowSolver:
             energy_dissipation_length = 6 * head  # For free nappe
         
         # Scour potential assessment
-        unit_discharge = discharge / (weir.crest_length or 1.0)
+        unit_discharge = discharge / (weir.crest_length or weir.weir_width or 1.0)
         if unit_discharge < 2.0:
             scour_potential = "Low"
         elif unit_discharge < 5.0:
@@ -1383,18 +1275,20 @@ class WeirFlowSolver:
         }
     
     def _calculate_effective_length(
-        self, weir: WeirGeometry, head: float
+        self, weir: WeirGeometry, head: float, channel: Optional[ChannelGeometry] = None
     ) -> float:
-        """Calculate effective crest length considering end contractions."""
-        
-        if weir.weir_type == WeirType.SHARP_CRESTED_RECTANGULAR:
-            # Francis formula for end contractions
-            if weir.weir_width:
-                return weir.weir_width - 0.1 * head
-            else:
-                return weir.crest_length or 1.0
-        else:
-            return weir.crest_length or weir.weir_width or 1.0
+        """
+        Effective crest length. A rectangular sharp-crested weir narrower
+        than the channel has two end contractions (Francis: L - 0.2H).
+        """
+        if weir.weir_type == WeirType.SHARP_CRESTED_RECTANGULAR and weir.weir_width:
+            contractions = 2
+            if channel is not None:
+                channel_width = channel.top_width(max(weir.weir_height, 1e-6))
+                if weir.weir_width >= 0.99 * channel_width:
+                    contractions = 0
+            return max(weir.weir_width - 0.1 * contractions * head, 0.0)
+        return weir.crest_length or weir.weir_width or 1.0
     
     def _generate_spillway_profile(
         self, weir: WeirGeometry
@@ -1425,21 +1319,15 @@ class WeirFlowSolver:
     def _design_rectangular_weir(
         self, discharge: float, head: float, channel: ChannelGeometry, criteria: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Design rectangular sharp-crested weir."""
-        
-        # Rehbock equation: Q = Cd * L * H^(3/2) * sqrt(2g)
+        """Crest length of a rectangular sharp-crested weir: Q = (2/3) Cd sqrt(2g) L H^(3/2)."""
         Cd = criteria.get("discharge_coefficient", 0.62)
+        unit = (2 / 3) * Cd * math.sqrt(2 * self.gravity) * head ** 1.5
+        required_length = discharge / unit
         
-        required_length = discharge / (Cd * head**(3/2) * math.sqrt(2 * self.gravity))
-        
-        # Apply practical constraints
         min_length = criteria.get("min_length", 0.5)
         max_length = criteria.get("max_length", 50.0)
-        
         design_length = max(min_length, min(required_length, max_length))
-        
-        # Calculate actual discharge with designed length
-        actual_discharge = Cd * design_length * head**(3/2) * math.sqrt(2 * self.gravity)
+        actual_discharge = unit * design_length
         
         return {
             "success": True,
@@ -1455,40 +1343,67 @@ class WeirFlowSolver:
     def _design_triangular_weir(
         self, discharge: float, head: float, channel: ChannelGeometry, criteria: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Design triangular sharp-crested weir."""
-        
-        # Standard 90-degree V-notch
+        """
+        V-notch sizing: the notch angle that passes the discharge at the given
+        head, and the head needed with the chosen angle (default 90 degrees).
+        """
         vertex_angle = criteria.get("vertex_angle", 90.0)
-        theta_rad = math.radians(vertex_angle)
-        
         Cd = criteria.get("discharge_coefficient", 0.58)
+        factor = Cd * (8 / 15) * math.sqrt(2 * self.gravity)
         
-        # Q = Cd * (8/15) * sqrt(2g) * tan(θ/2) * H^(5/2)
-        theoretical_discharge = Cd * (8/15) * math.sqrt(2 * self.gravity) * math.tan(theta_rad/2) * head**(5/2)
-        
-        # Scale factor to match required discharge
-        scale_factor = discharge / theoretical_discharge
+        required_vertex_angle = math.degrees(2 * math.atan(discharge / (factor * head ** 2.5)))
+        required_head = (discharge / (factor * math.tan(math.radians(vertex_angle) / 2))) ** 0.4
+        discharge_at_head = factor * math.tan(math.radians(vertex_angle) / 2) * head ** 2.5
         
         return {
             "success": True,
             "weir_type": "triangular",
             "vertex_angle": vertex_angle,
-            "scale_factor": scale_factor,
-            "theoretical_discharge": theoretical_discharge,
+            "required_vertex_angle": required_vertex_angle,
+            "required_head": required_head,
+            "scale_factor": discharge / discharge_at_head,
+            "theoretical_discharge": discharge_at_head,
             "actual_discharge": discharge,
             "design_head": head,
             "discharge_coefficient": Cd
         }
     
+    def _design_trapezoidal_weir(
+        self, discharge: float, head: float, channel: ChannelGeometry, criteria: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Crest width of a trapezoidal sharp-crested weir (default side slope
+        0.25, the Cipolletti weir): Q = (2/3) Cd_r sqrt(2g) b H^1.5 + (8/15) Cd_t sqrt(2g) z H^2.5.
+        """
+        side_slope = criteria.get("side_slope", 0.25)
+        Cd_rect = criteria.get("discharge_coefficient", 0.62)
+        Cd_tri = criteria.get("triangular_coefficient", 0.58)
+        root_2g = math.sqrt(2 * self.gravity)
+        
+        side_flow = (8 / 15) * Cd_tri * root_2g * side_slope * head ** 2.5
+        if side_flow >= discharge:
+            return {
+                "success": False,
+                "message": "The sloping sides alone pass this discharge at this head; use a V-notch or less head"
+            }
+        width = (discharge - side_flow) / ((2 / 3) * Cd_rect * root_2g * head ** 1.5)
+        
+        return {
+            "success": True,
+            "weir_type": "trapezoidal",
+            "weir_width": width,
+            "side_slope": side_slope,
+            "actual_discharge": discharge,
+            "design_head": head,
+            "discharge_coefficient": Cd_rect
+        }
+    
     def _design_broad_crested_weir(
         self, discharge: float, head: float, channel: ChannelGeometry, criteria: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Design broad-crested weir."""
-        
+        """Crest length of a broad-crested weir: Q = Cd L sqrt(2g) H^(3/2)."""
         Cd = criteria.get("discharge_coefficient", 0.35)
-        crest_thickness = criteria.get("crest_thickness", head * 2)  # Default to 2H
-        
-        # Q = Cd * L * H * sqrt(2g * H)
+        crest_thickness = criteria.get("crest_thickness", head * 2)
         required_length = discharge / (Cd * head * math.sqrt(2 * self.gravity * head))
         
         return {
@@ -1504,14 +1419,10 @@ class WeirFlowSolver:
     def _design_ogee_spillway(
         self, discharge: float, head: float, channel: ChannelGeometry, criteria: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Design ogee spillway."""
+        """Crest length of an ogee spillway at its design head: Q = (2/3) Cd sqrt(2g) L H^(3/2)."""
+        Cd = criteria.get("discharge_coefficient", 0.738)
+        required_length = discharge / ((2 / 3) * Cd * math.sqrt(2 * self.gravity) * head ** 1.5)
         
-        Cd = criteria.get("discharge_coefficient", 0.75)
-        
-        # Q = Cd * L * H^(3/2) * sqrt(2g)
-        required_length = discharge / (Cd * head**(3/2) * math.sqrt(2 * self.gravity))
-        
-        # Generate spillway profile
         profile = self._generate_spillway_profile(
             WeirGeometry(weir_type=WeirType.OGEE_SPILLWAY, weir_height=0, crest_length=required_length)
         )

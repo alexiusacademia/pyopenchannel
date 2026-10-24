@@ -176,3 +176,78 @@ class TestBridgeEnergyMethod:
         assert p['bridge_choked']
         assert p['bridge_depth'] == pytest.approx(critical, rel=1e-3)
         assert p['froude_number_bridge'] == pytest.approx(1.0, rel=1e-3)
+
+
+class TestCriticalDepth:
+    """Profiles stop at critical depth instead of running on past it."""
+
+    def setup_method(self):
+        poc.set_unit_system(poc.UnitSystem.SI)
+        self.solver = GVFSolver()
+
+    def test_s1_profile_ends_at_critical_depth(self):
+        # Steep channel; 1.5 m at a downstream control (S1). Going upstream
+        # the depth falls to critical depth about 10.7 m upstream.
+        width, discharge, slope, n = 3.0, 10.0, 0.02, 0.015
+        channel = RectangularChannel(width)
+        critical = ((discharge / width) ** 2 / G) ** (1 / 3)
+        result = self.solver.solve_profile(
+            channel, discharge, slope, n, x_start=-500.0, x_end=0.0,
+            boundary_depth=1.5, boundary_type=BoundaryType.DOWNSTREAM_DEPTH)
+
+        assert result.success
+        assert result.ended_at_critical_depth
+        assert "Critical depth reached" in result.message
+        # Independent RK4 (0.5 mm steps) reaches Fr = 0.99 at x = -10.66 m
+        assert result.critical_depth_location == pytest.approx(-10.66, abs=0.5)
+        points = result.profile_points
+        assert points[-1].x == pytest.approx(result.critical_depth_location)
+        assert points[-1].depth == pytest.approx(critical)
+        # No flat stretch beyond the critical point
+        assert result.length < 11.5
+        depths = [p.depth for p in points]
+        assert all(a > b for a, b in zip(depths, depths[1:]))
+
+    def test_profile_that_does_not_reach_critical_is_not_flagged(self):
+        result = self.solver.solve_profile(
+            RectangularChannel(8.0), 40.0, 0.001, 0.030, x_start=0.0, x_end=3000.0,
+            boundary_depth=4.0, boundary_type=BoundaryType.DOWNSTREAM_DEPTH)
+        assert result.success
+        assert not result.ended_at_critical_depth
+        assert result.critical_depth_location is None
+        assert result.length == pytest.approx(3000.0)
+
+    def test_critical_depth_on_mild_slope_is_a_brink(self):
+        # Mild slope: critical depth at a free overfall (x_end); the M2
+        # drawdown rises toward normal depth going upstream.
+        channel = RectangularChannel(5.0)
+        discharge, slope, n = 20.0, 0.001, 0.030
+        normal = NormalDepth.calculate(channel, discharge, slope, n)
+        critical = ((discharge / 5.0) ** 2 / G) ** (1 / 3)
+        result = self.solver.solve_profile(
+            channel, discharge, slope, n, x_start=0.0, x_end=800.0,
+            boundary_depth=0.0, boundary_type=BoundaryType.CRITICAL_DEPTH)
+        assert result.success
+        points = result.profile_points
+        assert points[0].x == pytest.approx(800.0)
+        assert points[0].depth == pytest.approx(critical, rel=0.03)
+        depths = [p.depth for p in points]
+        assert all(a < b for a, b in zip(depths, depths[1:]))
+        assert critical < depths[-1] < normal
+
+    def test_critical_depth_on_steep_slope_starts_supercritical(self):
+        # Steep slope: critical depth at the upstream control; the S2 curve
+        # falls toward normal depth going downstream.
+        channel = RectangularChannel(3.0)
+        discharge, slope, n = 10.0, 0.02, 0.015
+        normal = NormalDepth.calculate(channel, discharge, slope, n)
+        critical = ((discharge / 3.0) ** 2 / G) ** (1 / 3)
+        result = self.solver.solve_profile(
+            channel, discharge, slope, n, x_start=0.0, x_end=200.0,
+            boundary_depth=0.0, boundary_type=BoundaryType.CRITICAL_DEPTH)
+        assert result.success
+        points = result.profile_points
+        assert points[0].x == pytest.approx(0.0)
+        assert points[0].depth == pytest.approx(critical, rel=0.03)
+        assert points[0].depth < critical
+        assert points[-1].depth == pytest.approx(normal, rel=0.01)

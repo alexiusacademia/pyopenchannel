@@ -32,6 +32,12 @@ from ..units import get_gravity
 from .core import RVFSolver, RVFResult, TransitionType
 
 
+def available_pressure_head() -> float:
+    """Atmospheric minus vapour pressure head of water (10.09 m or 33.1 ft)."""
+    from ..units import get_unit_system, UnitSystem
+    return 10.09 if get_unit_system().system == UnitSystem.SI else 33.1
+
+
 class GateType(Enum):
     """Types of gates for flow analysis."""
     SLUICE = "sluice"              # Vertical lift gate
@@ -324,6 +330,7 @@ class GateFlowSolver:
         self.tolerance = convergence_tolerance
         self.max_iterations = max_iterations
         self.gravity = get_gravity()
+        self.rvf_solver = RVFSolver()
         
         # Initialize FVM solver if needed
         self.fvm_solver = None
@@ -381,13 +388,12 @@ class GateFlowSolver:
         Returns:
             GateFlowResult with complete analysis
         """
+        # Determine and check the method (a bad method is a caller error)
+        analysis_method = method if method is not None else self.method
+        if analysis_method not in ["analytical", "fvm"]:
+            raise ValueError(f"Invalid method: {analysis_method}")
+        
         try:
-            # Determine method to use
-            analysis_method = method if method is not None else self.method
-            
-            # Validate method
-            if analysis_method not in ["analytical", "fvm"]:
-                raise ValueError(f"Invalid method: {analysis_method}")
             
             # Validate inputs
             upstream_depth = validate_depth(upstream_depth)
@@ -405,75 +411,6 @@ class GateFlowSolver:
                 return self._analyze_gate_flow_analytical(
                     channel, gate, upstream_depth, downstream_depth, discharge
                 )
-            
-            # Calculate discharge if not provided
-            if discharge is None:
-                discharge = self._calculate_gate_discharge(
-                    channel, gate, upstream_depth, downstream_depth
-                )
-            
-            # Determine flow condition
-            flow_condition = self._classify_flow_condition(
-                gate, upstream_depth, downstream_depth
-            )
-            
-            # Calculate hydraulic parameters
-            hydraulic_params = self._calculate_hydraulic_parameters(
-                channel, gate, discharge, upstream_depth, downstream_depth, flow_condition
-            )
-            
-            # Analyze downstream conditions
-            downstream_analysis = self._analyze_downstream_conditions(
-                channel, discharge, hydraulic_params["contracted_depth"],
-                hydraulic_params["gate_velocity"], downstream_depth
-            )
-            
-            # Assess cavitation risk
-            cavitation_analysis = self._assess_cavitation_risk(
-                upstream_depth, hydraulic_params["contracted_depth"],
-                hydraulic_params["gate_velocity"]
-            )
-            
-            # Calculate energy parameters
-            energy_analysis = self._calculate_energy_analysis(
-                channel, discharge, upstream_depth, 
-                hydraulic_params["contracted_depth"], downstream_depth
-            )
-            
-            return GateFlowResult(
-                gate_type=gate.gate_type,
-                gate_opening=gate.gate_opening,
-                gate_width=gate.gate_width,
-                discharge=discharge,
-                upstream_depth=upstream_depth,
-                downstream_depth=downstream_depth or downstream_analysis["depth"],
-                contracted_depth=hydraulic_params["contracted_depth"],
-                upstream_velocity=hydraulic_params["upstream_velocity"],
-                gate_velocity=hydraulic_params["gate_velocity"],
-                downstream_velocity=downstream_analysis["velocity"],
-                contraction_coefficient=hydraulic_params["contraction_coefficient"],
-                discharge_coefficient=hydraulic_params["discharge_coefficient"],
-                velocity_coefficient=hydraulic_params["velocity_coefficient"],
-                upstream_energy=energy_analysis["upstream_energy"],
-                gate_energy=energy_analysis["gate_energy"],
-                downstream_energy=energy_analysis["downstream_energy"],
-                energy_loss=energy_analysis["energy_loss"],
-                flow_condition=flow_condition,
-                froude_upstream=hydraulic_params["froude_upstream"],
-                froude_gate=hydraulic_params["froude_gate"],
-                froude_downstream=downstream_analysis["froude_number"],
-                hydraulic_jump_required=downstream_analysis["jump_required"],
-                jump_analysis=downstream_analysis.get("jump_analysis"),
-                cavitation_risk=cavitation_analysis["risk_level"],
-                cavitation_index=cavitation_analysis["cavitation_index"],
-                success=True,
-                message=f"Gate flow analysis complete. Flow condition: {flow_condition.value}",
-                properties={
-                    "submergence_ratio": downstream_analysis.get("submergence_ratio", 0),
-                    "energy_efficiency": energy_analysis["efficiency"],
-                    "gate_coefficient_source": hydraulic_params.get("coefficient_source", "empirical")
-                }
-            )
             
         except Exception as e:
             return GateFlowResult(
@@ -514,40 +451,83 @@ class GateFlowSolver:
         downstream_depth: Optional[float] = None,
         discharge: Optional[float] = None
     ) -> GateFlowResult:
-        """Analyze gate flow using analytical methods (original implementation)."""
+        """
+        Analyze flow under the gate with the energy and momentum equations.
+        
+        Free flow: energy from upstream to the vena contracta (depth Cc a).
+        Submerged flow (tailwater deeper than the sequent depth of the jet):
+        energy upstream to the gate plus momentum from the gate to the
+        tailwater (Henderson, Open Channel Flow, 1966).
+        """
         import time
         start_time = time.time()
         
-        # Calculate discharge if not provided
-        if discharge is None:
-            discharge = self._calculate_gate_discharge(
-                channel, gate, upstream_depth, downstream_depth
+        if gate.gate_opening >= upstream_depth - gate.sill_elevation:
+            raise InvalidFlowConditionError(
+                "Gate opening is at or above the upstream water level; the gate does not control the flow"
             )
         
-        # Determine flow condition
-        flow_condition = self._classify_flow_condition(
-            gate, upstream_depth, downstream_depth
+        flow = self._gate_flow(channel, gate, upstream_depth, downstream_depth)
+        flow_condition = flow["condition"]
+        if discharge is None:
+            discharge = flow["discharge"]
+        
+        hydraulic_params = self._calculate_hydraulic_parameters(
+            channel, gate, discharge, upstream_depth, flow["contraction_coefficient"]
+        )
+        downstream_analysis = self._analyze_downstream_conditions(
+            channel, discharge, hydraulic_params["contracted_depth"],
+            hydraulic_params["gate_velocity"], downstream_depth,
+            free_flow=flow_condition == FlowCondition.FREE_FLOW
+        )
+        cavitation_analysis = self._assess_cavitation_risk(
+            upstream_depth, hydraulic_params["contracted_depth"],
+            hydraulic_params["gate_velocity"]
+        )
+        energy_analysis = self._calculate_energy_analysis(
+            channel, discharge, upstream_depth,
+            hydraulic_params["contracted_depth"], downstream_depth, gate.gate_width
         )
         
-        # Analyze based on flow condition
-        if flow_condition == FlowCondition.FREE_FLOW:
-            result = self._analyze_free_flow(
-                channel, gate, upstream_depth, discharge
-            )
-        elif flow_condition == FlowCondition.SUBMERGED:
-            result = self._analyze_submerged_flow(
-                channel, gate, upstream_depth, downstream_depth, discharge
-            )
-        else:  # DROWNED
-            result = self._analyze_drowned_flow(
-                channel, gate, upstream_depth, downstream_depth, discharge
-            )
-        
-        # Add method information
-        result.method_used = "analytical"
-        result.computation_time = time.time() - start_time
-        
-        return result
+        return GateFlowResult(
+            gate_type=gate.gate_type,
+            gate_opening=gate.gate_opening,
+            gate_width=gate.gate_width,
+            discharge=discharge,
+            upstream_depth=upstream_depth,
+            downstream_depth=downstream_depth if downstream_depth is not None else downstream_analysis["depth"],
+            contracted_depth=hydraulic_params["contracted_depth"],
+            upstream_velocity=hydraulic_params["upstream_velocity"],
+            gate_velocity=hydraulic_params["gate_velocity"],
+            downstream_velocity=downstream_analysis["velocity"],
+            contraction_coefficient=hydraulic_params["contraction_coefficient"],
+            discharge_coefficient=hydraulic_params["discharge_coefficient"],
+            velocity_coefficient=hydraulic_params["velocity_coefficient"],
+            upstream_energy=energy_analysis["upstream_energy"],
+            gate_energy=energy_analysis["gate_energy"],
+            downstream_energy=energy_analysis["downstream_energy"],
+            energy_loss=energy_analysis["energy_loss"],
+            flow_condition=flow_condition,
+            froude_upstream=hydraulic_params["froude_upstream"],
+            froude_gate=hydraulic_params["froude_gate"],
+            froude_downstream=downstream_analysis["froude_number"],
+            hydraulic_jump_required=downstream_analysis["jump_required"],
+            jump_analysis=downstream_analysis.get("jump_analysis"),
+            cavitation_risk=cavitation_analysis["risk_level"],
+            cavitation_index=cavitation_analysis["cavitation_index"],
+            success=True,
+            message=f"Gate flow analysis complete. Flow condition: {flow_condition.value}",
+            properties={
+                "submergence_ratio": downstream_analysis.get("submergence_ratio", 0),
+                "free_flow_discharge": flow["free_discharge"],
+                "sequent_depth": flow["sequent_depth"],
+                "depth_behind_gate": flow["depth_behind_gate"],
+                "energy_efficiency": energy_analysis["efficiency"],
+                "gate_coefficient_source": "energy and momentum equations"
+            },
+            method_used="analytical",
+            computation_time=time.time() - start_time
+        )
     
     def _analyze_gate_flow_fvm(
         self,
@@ -856,88 +836,79 @@ class GateFlowSolver:
         upstream_depth: float,
         downstream_depth: Optional[float]
     ) -> float:
-        """Calculate discharge through gate opening."""
-        
-        # Determine discharge coefficient based on gate type and conditions
-        Cd = self._get_discharge_coefficient(gate, upstream_depth, downstream_depth)
-        
-        # Effective gate area
-        effective_area = gate.gate_width * gate.gate_opening
-        
-        # Calculate driving head
-        if gate.gate_type == GateType.SLUICE:
-            # For sluice gates, use upstream depth minus gate opening
-            driving_head = upstream_depth - gate.gate_opening / 2
-        else:
-            # For other gates, use full upstream depth
-            driving_head = upstream_depth
-        
-        # Ensure positive driving head
-        driving_head = max(driving_head, 0.1)
-        
-        # Calculate discharge using orifice equation
-        discharge = Cd * effective_area * math.sqrt(2 * self.gravity * driving_head)
-        
-        # Apply submergence correction if applicable
-        if downstream_depth is not None and downstream_depth > gate.gate_opening:
-            submergence_ratio = downstream_depth / upstream_depth
-            if submergence_ratio > 0.7:  # Significant submergence
-                submergence_factor = 1 - 0.5 * (submergence_ratio - 0.7) / 0.3
-                discharge *= submergence_factor
-        
-        return discharge
+        """Discharge under the gate (free or submerged)."""
+        return self._gate_flow(channel, gate, upstream_depth, downstream_depth)["discharge"]
     
-    def _get_discharge_coefficient(
+    def _gate_flow(
         self,
+        channel: ChannelGeometry,
         gate: GateGeometry,
         upstream_depth: float,
         downstream_depth: Optional[float]
-    ) -> float:
-        """Get discharge coefficient based on gate type and conditions."""
+    ) -> Dict[str, Any]:
+        """
+        Discharge and flow condition under the gate.
         
-        if gate.gate_type == GateType.SLUICE:
-            # Sluice gate coefficients
-            opening_ratio = gate.gate_opening / upstream_depth
-            
-            if opening_ratio < 0.2:
-                return 0.61  # Sharp-edged orifice
-            elif opening_ratio < 0.5:
-                return 0.65  # Partially contracted
-            else:
-                return 0.70  # Fully contracted
-                
-        elif gate.gate_type == GateType.RADIAL:
-            # Radial gate coefficients (typically higher)
-            return 0.75
-            
-        elif gate.gate_type == GateType.ROLLER:
-            # Roller gate coefficients
-            return 0.68
-            
-        else:
-            # Default coefficient for other gate types
-            return 0.62
-    
-    def _classify_flow_condition(
-        self,
-        gate: GateGeometry,
-        upstream_depth: float,
-        downstream_depth: Optional[float]
-    ) -> FlowCondition:
-        """Classify flow condition under gate."""
+        Depths are measured above the sill. The upstream velocity uses the
+        channel section; the jet and the tailwater use the gate width.
+        """
+        g = self.gravity
+        b = gate.gate_width
+        h1 = upstream_depth - gate.sill_elevation
+        upstream_area = channel.area(upstream_depth)
+        cc = self._get_contraction_coefficient(gate, upstream_depth)
+        y2 = cc * gate.gate_opening
+        jet_area = b * y2
         
+        # Free flow: h1 + V1^2/2g = y2 + V2^2/2g
+        free_discharge = jet_area * math.sqrt(
+            2 * g * (h1 - y2) / (1 - (jet_area / upstream_area) ** 2))
+        
+        # Sequent depth of the jet (rectangular, gate width)
+        q = free_discharge / b
+        froude_jet = q / (y2 * math.sqrt(g * y2))
+        sequent_depth = 0.5 * y2 * (math.sqrt(1 + 8 * froude_jet ** 2) - 1)
+        
+        result = {
+            "contraction_coefficient": cc,
+            "free_discharge": free_discharge,
+            "sequent_depth": sequent_depth,
+            "depth_behind_gate": y2,
+            "discharge": free_discharge,
+            "condition": FlowCondition.FREE_FLOW
+        }
         if downstream_depth is None:
-            return FlowCondition.FREE_FLOW
+            return result
+        h3 = downstream_depth - gate.sill_elevation
+        if h3 <= sequent_depth:
+            return result
+        if h3 >= h1:
+            result.update(discharge=0.0, depth_behind_gate=h3, condition=FlowCondition.DROWNED)
+            return result
         
-        # Calculate submergence ratio
-        submergence_ratio = downstream_depth / gate.gate_opening
+        # Submerged: find the depth y just downstream of the gate where the
+        # discharge from the energy equation (upstream -> gate) equals the
+        # discharge from the momentum equation (gate -> tailwater).
+        def q2_energy(y):
+            return 2 * g * (h1 - y) / (1 / jet_area ** 2 - 1 / upstream_area ** 2)
         
-        if submergence_ratio < 0.7:
-            return FlowCondition.FREE_FLOW
-        elif submergence_ratio < 1.5:
-            return FlowCondition.SUBMERGED
-        else:
-            return FlowCondition.DROWNED
+        def q2_momentum(y):
+            return g * b ** 2 * (h3 ** 2 - y ** 2) / (2 * (1 / y2 - 1 / h3))
+        
+        lo, hi = y2, h3
+        for _ in range(200):
+            mid = 0.5 * (lo + hi)
+            if q2_momentum(mid) - q2_energy(mid) > 0:
+                lo = mid
+            else:
+                hi = mid
+        depth_behind_gate = 0.5 * (lo + hi)
+        discharge = math.sqrt(max(q2_energy(depth_behind_gate), 0.0))
+        
+        # Drowned: the tailwater has cut the flow to less than half of free flow
+        condition = FlowCondition.DROWNED if discharge < 0.5 * free_discharge else FlowCondition.SUBMERGED
+        result.update(discharge=discharge, depth_behind_gate=depth_behind_gate, condition=condition)
+        return result
     
     def _calculate_hydraulic_parameters(
         self,
@@ -945,45 +916,31 @@ class GateFlowSolver:
         gate: GateGeometry,
         discharge: float,
         upstream_depth: float,
-        downstream_depth: Optional[float],
-        flow_condition: FlowCondition
+        contraction_coefficient: float
     ) -> Dict[str, Any]:
-        """Calculate hydraulic parameters for gate flow."""
+        """Velocities, Froude numbers and coefficients at the gate."""
+        g = self.gravity
+        upstream_velocity = discharge / channel.area(upstream_depth)
+        upstream_top_width = channel.top_width(upstream_depth)
+        froude_upstream = upstream_velocity / math.sqrt(g * channel.area(upstream_depth) / upstream_top_width)
         
-        # Upstream conditions
-        upstream_area = channel.area(upstream_depth)
-        upstream_velocity = discharge / upstream_area
-        froude_upstream = upstream_velocity / math.sqrt(self.gravity * upstream_depth)
+        contracted_depth = contraction_coefficient * gate.gate_opening
+        gate_velocity = discharge / (gate.gate_width * contracted_depth)
+        froude_gate = gate_velocity / math.sqrt(g * contracted_depth)
         
-        # Gate conditions
-        gate_area = gate.gate_width * gate.gate_opening
-        gate_velocity = discharge / gate_area
-        
-        # Contraction coefficient (Cc)
-        Cc = self._get_contraction_coefficient(gate, upstream_depth)
-        
-        # Contracted depth (vena contracta)
-        contracted_depth = Cc * gate.gate_opening
-        
-        # Froude number at gate
-        froude_gate = gate_velocity / math.sqrt(self.gravity * contracted_depth)
-        
-        # Discharge coefficient
-        Cd = self._get_discharge_coefficient(gate, upstream_depth, downstream_depth)
-        
-        # Velocity coefficient
-        Cv = Cd / Cc if Cc > 0 else 1.0
+        # Cd in Q = Cd b a sqrt(2 g h1), and Cv = Cd / Cc
+        h1 = upstream_depth - gate.sill_elevation
+        discharge_coefficient = discharge / (gate.gate_width * gate.gate_opening * math.sqrt(2 * g * h1))
         
         return {
             "upstream_velocity": upstream_velocity,
             "gate_velocity": gate_velocity,
             "contracted_depth": contracted_depth,
-            "contraction_coefficient": Cc,
-            "discharge_coefficient": Cd,
-            "velocity_coefficient": Cv,
+            "contraction_coefficient": contraction_coefficient,
+            "discharge_coefficient": discharge_coefficient,
+            "velocity_coefficient": discharge_coefficient / contraction_coefficient,
             "froude_upstream": froude_upstream,
-            "froude_gate": froude_gate,
-            "coefficient_source": "empirical"
+            "froude_gate": froude_gate
         }
     
     def _get_contraction_coefficient(
@@ -1018,7 +975,8 @@ class GateFlowSolver:
         discharge: float,
         contracted_depth: float,
         gate_velocity: float,
-        downstream_depth: Optional[float]
+        downstream_depth: Optional[float],
+        free_flow: bool = True
     ) -> Dict[str, Any]:
         """Analyze downstream flow conditions and hydraulic jump potential."""
         
@@ -1030,7 +988,8 @@ class GateFlowSolver:
             
             # Check for hydraulic jump
             froude_contracted = gate_velocity / math.sqrt(self.gravity * contracted_depth)
-            jump_required = froude_contracted > 1.0 and froude_downstream < 1.0
+            # A free jump forms only in free flow; submerged flow has a drowned jet
+            jump_required = free_flow and froude_contracted > 1.0 and froude_downstream < 1.0
             
             jump_analysis = None
             if jump_required:
@@ -1070,21 +1029,14 @@ class GateFlowSolver:
         contracted_depth: float,
         gate_velocity: float
     ) -> Dict[str, Any]:
-        """Assess cavitation risk at gate opening."""
+        """
+        Cavitation index at the vena contracta:
+        sigma = (atmospheric - vapour pressure head + depth) / (V^2 / 2g).
+        """
+        velocity_head = gate_velocity ** 2 / (2 * self.gravity)
+        pressure_head = available_pressure_head() + contracted_depth
+        cavitation_index = pressure_head / velocity_head if velocity_head > 0 else 10.0
         
-        # Calculate cavitation index
-        # σ = (P_atm + ρgh - P_vapor) / (0.5 * ρ * V²)
-        # Simplified: σ ≈ (h_upstream - h_contracted) / (V² / 2g)
-        
-        pressure_head_diff = upstream_depth - contracted_depth
-        velocity_head = gate_velocity**2 / (2 * self.gravity)
-        
-        if velocity_head > 0:
-            cavitation_index = pressure_head_diff / velocity_head
-        else:
-            cavitation_index = 10.0  # Very high (safe)
-        
-        # Classify risk level
         if cavitation_index > 0.25:
             risk_level = CavitationRisk.LOW
         elif cavitation_index > 0.1:
@@ -1095,7 +1047,7 @@ class GateFlowSolver:
         return {
             "cavitation_index": cavitation_index,
             "risk_level": risk_level,
-            "pressure_head_diff": pressure_head_diff,
+            "pressure_head": pressure_head,
             "velocity_head": velocity_head
         }
     
@@ -1105,7 +1057,8 @@ class GateFlowSolver:
         discharge: float,
         upstream_depth: float,
         contracted_depth: float,
-        downstream_depth: Optional[float]
+        downstream_depth: Optional[float],
+        gate_width: Optional[float] = None
     ) -> Dict[str, Any]:
         """Calculate energy analysis for gate flow."""
         
@@ -1115,7 +1068,7 @@ class GateFlowSolver:
         upstream_energy = upstream_depth + upstream_velocity**2 / (2 * self.gravity)
         
         # Gate energy (at vena contracta)
-        gate_area = channel.area(contracted_depth)
+        gate_area = gate_width * contracted_depth if gate_width else channel.area(contracted_depth)
         gate_velocity = discharge / gate_area
         gate_energy = contracted_depth + gate_velocity**2 / (2 * self.gravity)
         
